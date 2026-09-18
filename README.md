@@ -5,13 +5,16 @@ pro 1 Mio. Tokens)** des Providers/Modells des **letzten API-Calls** anzeigt –
 direkt neben der Session-Kostensumme.
 
 Format: `<in>/<out>` plus optionales Provider-Tag **hinten**.
-Das Tag sind die ersten 3 Zeichen des Serving-Providers und wird **nur** bei
-OpenRouter angehängt, sobald der echte Provider aufgelöst ist (z. B. `Fir` →
-Fireworks). Sonst wird die Providerinfo ausgeblendet.
+Das Tag wird **nur** bei OpenRouter angehängt und sind die ersten 3 Zeichen des
+Providers aus der **Model-ID** (`deepseek/deepseek-v4.1-flash` → `dee`) – **ohne
+zusätzlichen API-Call**. Optional (Opt-in) wird stattdessen der echte
+Serving-Provider aufgelöst (`Fir` → Fireworks). Sonst wird die Providerinfo
+ausgeblendet.
 
 ```
-󰜷$2/󰜺$12 (Fir)    # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out), Upstream = Fireworks
-in:$2/out:$12       # ASCII, kein Tag (Upstream unbekannt oder kein OpenRouter)
+󰜷$2/󰜺$12 (dee)    # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out), aus Model-ID
+󰜷$2/󰜺$12 (Fir)    # optional: Serving-Provider (Fireworks) via Generation-API
+in:$2/out:$12       # ASCII, kein Tag (nicht OpenRouter)
 ```
 
 > Hinweis: Die Nerd-Font-Glyphen sind Private-Use-Codepoints (`U+F090`, `U+F08B`)
@@ -31,15 +34,20 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
   Dadurch sind Preistiers, Service-Tier-Multiplikatoren, providerabhängige Tarife
   und OpenRouter-Routing automatisch enthalten. Das Provider-Tag macht das
   überprüfbar.
-- **Upstream-Provider (OpenRouter).** Pi liefert für erfolgreiche Calls keinen
-  Serving-Provider. Die Extension fragt daher best-effort
-  `GET https://openrouter.ai/api/v1/generation?id=<responseId>` ab und zeigt
-  `data.provider_name` (z. B. `Fireworks`). Diese Daten sind erst einige Sekunden
-  nach dem Call verfügbar → Retry mit Backoff (1s/2s/4s/8s). Bis dahin und bei
-  fehlgeschlagenem Lookup wird **kein** Tag angezeigt (nicht `(ope)`). Das Tag
-  erscheint ausschließlich für `provider == "openrouter"`; bei allen anderen
-  Providern wird die Providerinfo ausgeblendet. Abschaltbar via
-  `lookupUpstreamProvider` bzw. `/provider-cost lookup off`.
+- **Provider-Tag (OpenRouter).** Standard: Provider aus der Model-ID (Segment
+  vor dem `/`), z. B. `dee` → `deepseek`. Das ist **ohne REST-Call** verfügbar.
+  Das Tag erscheint ausschließlich für `provider == "openrouter"`; bei allen
+  anderen Providern wird die Providerinfo ausgeblendet.
+- **Optionaler Serving-Provider-Lookup.** OpenRouter liefert den tatsächlichen
+  Serving-Provider (z. B. `Fireworks`/`Together`) im Stream-Chunk als
+  `provider`-Feld – Pi (`pi-ai`) verwirft dieses Feld aber. Es gibt dafür auch
+  keinen HTTP-Header (`X-Provider-Name` ist nur als „exposed" gelistet, wird aber
+  nicht gesendet). Optional fragt die Extension daher
+  `GET https://openrouter.ai/api/v1/generation?id=<responseId>` ab
+  (`lookupUpstreamProvider`, Default **aus**). Diese Daten sind erst einige
+  Sekunden nach dem Call verfügbar → Retry mit Backoff (1s/2s/4s/8s). Solange
+  bleibt das Model-ID-Tag stehen; danach wird es durch den Serving-Provider
+  ersetzt.
 - **Nur Input/Output** (kein Cache-Read/Write).
 - **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert
   wird erst bei `message_end` (abgeschlossener API-Call).
@@ -125,7 +133,7 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 | `/provider-cost refresh` | Wechselkurse neu laden |
 | `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
-| `/provider-cost lookup <on\|off>` | Upstream-Provider-Auflösung für OpenRouter (persistiert) |
+| `/provider-cost lookup <on\|off>` | Serving-Provider-Auflösung über die Generation-API (persistiert, Default aus) |
 
 Unbekannte Optionen werden mit einem Hinweis quittiert.
 
@@ -140,7 +148,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
     "enabled": true,
     "currency": "EUR",
     "icons": "nerd",
-    "lookupUpstreamProvider": true
+    "lookupUpstreamProvider": false
   }
 }
 ```
@@ -150,7 +158,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | `enabled` | `true` | Anzeige ein/aus (per Slash-Command änderbar) |
 | `currency` | `"USD"` | Eine von: `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
 | `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` |
-| `lookupUpstreamProvider` | `true` | OpenRouter-Serving-Provider über die Generation-API auflösen (zusätzlicher HTTP-Request mit dem Provider-Key) |
+| `lookupUpstreamProvider` | `false` | OpenRouter-Serving-Provider über die Generation-API auflösen (zusätzlicher HTTP-Request mit dem Provider-Key). Aus = Provider aus der Model-ID, kein Call. |
 
 ### Icons
 

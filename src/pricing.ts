@@ -61,16 +61,28 @@ export interface RateSnapshot {
 }
 
 /**
+ * Provider segment of an OpenRouter model id, e.g. `deepseek/deepseek-v4.1-flash`
+ * -> `deepseek`. This is available without any extra API call.
+ */
+function modelProviderName(modelId: string): string | null {
+  const slash = modelId.indexOf("/");
+  if (slash <= 0) return null;
+
+  const name = modelId.slice(0, slash).trim();
+  return name || null;
+}
+
+/**
  * Short provider tag for the status line, or null when it should be hidden.
  *
- * Only OpenRouter exposes an upstream/serving provider distinct from the routing
- * provider; for every other provider the tag is omitted. If OpenRouter's serving
- * provider has not been resolved (yet), the tag is omitted as well.
+ * Only OpenRouter shows a tag; for every other provider it is omitted. The tag
+ * prefers the resolved serving provider (generation API) and otherwise falls
+ * back to the provider segment of the model id - so no REST call is required.
  */
 export function upstreamTag(snapshot: RateSnapshot): string | null {
   if (snapshot.provider !== "openrouter") return null;
 
-  const name = snapshot.upstreamProvider?.trim();
+  const name = snapshot.upstreamProvider?.trim() || modelProviderName(snapshot.model);
   if (!name) return null;
 
   return name.slice(0, 3);

@@ -41,7 +41,10 @@ export interface ExtensionSettings {
   currency: CurrencyCode;
   /** Icon variant: auto (terminal heuristic), nerd, or ascii. */
   icons: IconMode;
-  /** Resolve the actual OpenRouter upstream provider via the generation API. */
+  /**
+   * Resolve the actual OpenRouter serving provider via the generation API.
+   * Off by default: the provider is derived from the model id without a REST call.
+   */
   lookupUpstreamProvider: boolean;
 }
 
@@ -49,7 +52,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   currency: "USD",
   icons: "auto",
-  lookupUpstreamProvider: true,
+  lookupUpstreamProvider: false,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

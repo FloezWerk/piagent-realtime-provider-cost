@@ -275,14 +275,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           ? `${snapshot.provider}/${snapshot.model}${snapshot.subscription ? " (subscription)" : ""}`
           : "noch kein API-Call";
         const tag = snapshot ? upstreamTag(snapshot) : null;
-        const providerInfo = snapshot
-          ? snapshot.provider === "openrouter"
-            ? `${snapshot.upstreamProvider ?? "unbekannt"} (upstream)`
-            : `${snapshot.provider} (kein Upstream-Tag)`
-          : "-";
+        const tagSource = !snapshot || snapshot.provider !== "openrouter"
+          ? "-"
+          : snapshot.upstreamProvider
+            ? "upstream (generation API)"
+            : "model id";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons} · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"}`
-          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} · Provider: ${providerInfo}`,
+          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${tagSource})`,
           "info",
         );
         return;
