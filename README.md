@@ -19,7 +19,7 @@ in:$2/out:$12     # ASCII-Modus (icons: ascii)
 
 **Farbe:** standardmäßig **weiß**; wird ein **Providerwechsel** erkannt (neu
 ermittelter Provider ≠ bisher bekannter Provider), wird der Wert **fett gelb**
-(`bold:yellow`) dargestellt – der nächste Render ist wieder weiß.
+(`bold:#ffd700`) dargestellt – der nächste Render ist wieder weiß.
 
 Farbangaben sind frei wählbar:
 
@@ -195,7 +195,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
     "currency": "EUR",
     "icons": "nerd",
     "color": "white",
-    "switchColor": "bold:yellow",
+    "switchColor": "bold:#ffd700",
     "lookupUpstreamProvider": true,
     "providerCacheRefreshPrompts": 10
   }
@@ -208,7 +208,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
 | `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
 | `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
-| `switchColor` | `"bold:yellow"` | Farbe direkt nach erkanntem Providerwechsel |
+| `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
 | `lookupUpstreamProvider` | `true` | Provider-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert (Routing-Einträge nie); `0` = immer neu auflösen |
 

@@ -63,8 +63,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   currency: "USD",
   icons: "auto",
   color: "white",
-  // Bold makes the switch highlight stand out more against the terminal palette.
-  switchColor: "bold:yellow",
+  // Bold gold makes the switch highlight stand out against the terminal palette.
+  switchColor: "bold:#ffd700",
   lookupUpstreamProvider: true,
   providerCacheRefreshPrompts: 10,
 };

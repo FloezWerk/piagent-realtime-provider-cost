@@ -82,7 +82,7 @@ export function resolveColorSpec(spec: string): ResolvedColor | null {
   const name = SGR[lower as Exclude<ColorName, "none">];
   if (typeof name === "number") return withBold(String(name), bold);
 
-  const hex = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(rest.startsWith("#") ? rest.slice(1) : "");
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(rest);
   if (hex) return withBold(`38;2;${hexToRgb(hex[1]).join(";")}`, bold);
 
   if (/^\d{1,3}$/.test(rest)) {
