@@ -42,17 +42,20 @@ export interface ExtensionSettings {
   /** Icon variant: auto (terminal heuristic), nerd, or ascii. */
   icons: IconMode;
   /**
-   * Resolve the actual OpenRouter serving provider via the generation API.
-   * Off by default: the provider is derived from the model id without a REST call.
+   * Resolve the actual OpenRouter serving provider (routing constraint or
+   * generation API). Generation results are cached per model for the TTL below.
    */
   lookupUpstreamProvider: boolean;
+  /** TTL in minutes for generation-API cache entries (routing entries never expire). */
+  providerCacheTtlMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   currency: "USD",
   icons: "auto",
-  lookupUpstreamProvider: false,
+  lookupUpstreamProvider: true,
+  providerCacheTtlMinutes: 30,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,6 +97,12 @@ export async function loadSettings(): Promise<ExtensionSettings> {
       typeof section.lookupUpstreamProvider === "boolean"
         ? section.lookupUpstreamProvider
         : DEFAULT_SETTINGS.lookupUpstreamProvider,
+    providerCacheTtlMinutes:
+      typeof section.providerCacheTtlMinutes === "number" &&
+      Number.isFinite(section.providerCacheTtlMinutes) &&
+      section.providerCacheTtlMinutes >= 0
+        ? section.providerCacheTtlMinutes
+        : DEFAULT_SETTINGS.providerCacheTtlMinutes,
   };
 }
 

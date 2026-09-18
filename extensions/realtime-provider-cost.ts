@@ -6,9 +6,11 @@
  *
  * - Preise werden aus dem gemeldeten `usage.cost.*` abgeleitet (effektiver Preis,
  *   inkl. Tiers/Service-Tier/Routing), nicht aus der statischen Preistabelle.
- * - Das Provider-Kuerzel zeigt den tatsaechlich bedienenden Provider. Bei
- *   OpenRouter wird dazu best-effort der echte Upstream-Provider (z. B. Fireworks)
- *   ueber die Generation-API aufgeloest; sonst die Provider-ID.
+ * - Das Provider-Tag zeigt den von OpenRouter gewaehlten Serving-/Routing-Provider.
+ *   Aufloesung in dieser Reihenfolge (moeglichst ohne REST-Call):
+ *     1. Routing-Constraint `openRouterRouting.only` aus models.json (statisch, 0 Calls)
+ *     2. persistenter Provider-Cache (TTL)
+ *     3. Generation-API (nur bei Cache-Miss/-Ablauf, mit Backoff)
  * - Umrechnung in die konfigurierte Waehrung analog pi-powerline-footer.
  * - Die Extension ist eigenstaendig: ohne pi-powerline-footer erscheint der Wert
  *   als eigene Footer-Zeile; mit Powerline kann er ueber `customItems`/`statusKey`
@@ -28,13 +30,16 @@ import type {
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
+import { routingProviderFromModel } from "../src/model-routing.ts";
 import {
   snapshotFromBranch,
   snapshotFromMessage,
   upstreamTag,
   type ModelRegistryLike,
+  type ProviderSource,
   type RateSnapshot,
 } from "../src/pricing.ts";
+import { providerCache } from "../src/provider-cache.ts";
 import {
   DEFAULT_SETTINGS,
   STATUS_KEY,
@@ -47,7 +52,6 @@ import {
 import { lookupOpenRouterProvider } from "../src/upstream.ts";
 
 const COMMAND_NAME = "provider-cost";
-const UPSTREAM_CACHE_LIMIT = 200;
 
 /** Registry facade as far as this extension needs it. */
 interface RegistryFacade extends ModelRegistryLike {
@@ -57,13 +61,23 @@ interface RegistryFacade extends ModelRegistryLike {
 export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<void> {
   let settings: ExtensionSettings = { ...DEFAULT_SETTINGS };
   let snapshot: RateSnapshot | null = null;
+  let cacheLoaded = false;
 
-  /** generation id -> upstream provider name (or null when unknown). */
-  const upstreamCache = new Map<string, string | null>();
-  const upstreamInFlight = new Set<string>();
+  /** requestModel -> in-flight generation lookup guard. */
+  const lookupsInFlight = new Set<string>();
 
   function registry(ctx: ExtensionContext): RegistryFacade | undefined {
     return ctx.modelRegistry as unknown as RegistryFacade | undefined;
+  }
+
+  function cacheTtlMs(): number {
+    return Math.max(0, settings.providerCacheTtlMinutes) * 60_000;
+  }
+
+  async function ensureCacheLoaded(): Promise<void> {
+    if (cacheLoaded) return;
+    cacheLoaded = true;
+    await providerCache.load();
   }
 
   /** Current status text, or null when the item should be hidden. */
@@ -77,63 +91,80 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     ctx.ui.setStatus(STATUS_KEY, currentText() ?? undefined);
   }
 
+  function applyProvider(
+    ctx: ExtensionContext,
+    target: RateSnapshot,
+    provider: string,
+    source: ProviderSource,
+  ): void {
+    if (snapshot !== target) return;
+
+    target.upstreamProvider = provider;
+    target.providerSource = source;
+    render(ctx);
+  }
+
   /**
-   * Resolves the real upstream provider for OpenRouter calls and refreshes the
-   * status once known. Best-effort: failures keep the provider-id fallback.
+   * Resolves the serving provider for the last call, preferring free sources:
+   * routing constraint -> cache -> generation API (cached afterwards).
    */
-  async function enrichUpstream(ctx: ExtensionContext, target: RateSnapshot): Promise<void> {
+  async function resolveProvider(ctx: ExtensionContext, target: RateSnapshot): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
+    if (target.upstreamProvider) return;
 
-    const responseId = target.responseId;
-    if (!responseId) return;
+    await ensureCacheLoaded();
 
-    if (upstreamCache.has(responseId)) {
-      const cached = upstreamCache.get(responseId) ?? null;
-      if (cached && snapshot === target) {
-        target.upstreamProvider = cached;
-        render(ctx);
+    // 1) Static routing constraint (no API call).
+    try {
+      const model = registry(ctx)?.find("openrouter", target.requestModel);
+      const routing = routingProviderFromModel(model);
+      if (routing) {
+        providerCache.set(target.requestModel, routing, "routing");
+        applyProvider(ctx, target, routing, "routing");
+        return;
       }
+    } catch {
+      // Ignore and fall through to the cache.
+    }
+
+    // 2) Persistent cache.
+    const cached = providerCache.get(target.requestModel, cacheTtlMs());
+    if (cached) {
+      applyProvider(ctx, target, cached.provider, cached.source);
       return;
     }
 
-    if (upstreamInFlight.has(responseId)) return;
-    upstreamInFlight.add(responseId);
+    // 3) Generation API (cached by model, at most one in-flight per model).
+    const responseId = target.responseId;
+    const key = target.requestModel;
+    if (!responseId || lookupsInFlight.has(key)) return;
+    lookupsInFlight.add(key);
 
     try {
-      const facade = registry(ctx);
-      const apiKey = await facade?.getApiKeyForProvider?.("openrouter");
-      if (!apiKey) {
-        upstreamCache.set(responseId, null);
-        return;
-      }
+      const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
+      if (!apiKey) return;
 
       const name = await lookupOpenRouterProvider(responseId, { apiKey });
-      upstreamCache.set(responseId, name);
+      if (!name) return;
 
-      if (name && snapshot === target) {
-        target.upstreamProvider = name;
-        render(ctx);
-      }
+      providerCache.set(key, name, "generation");
+      applyProvider(ctx, target, name, "generation");
     } catch {
-      upstreamCache.set(responseId, null);
+      // Best-effort; without a provider the tag stays hidden.
     } finally {
-      upstreamInFlight.delete(responseId);
-      while (upstreamCache.size > UPSTREAM_CACHE_LIMIT) {
-        const oldest = upstreamCache.keys().next().value;
-        if (oldest === undefined) break;
-        upstreamCache.delete(oldest);
-      }
+      lookupsInFlight.delete(key);
     }
   }
 
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
     settings = await loadSettings();
+    await ensureCacheLoaded();
     if (settings.currency !== "USD") {
       await ensureRatesLoaded();
     }
     snapshot = snapshotFromBranch(ctx.sessionManager.getBranch(), registry(ctx));
     render(ctx);
-    if (snapshot) void enrichUpstream(ctx, snapshot);
+    if (snapshot) void resolveProvider(ctx, snapshot);
   });
 
   // Nur finalisierte Assistant-Nachrichten aktualisieren den Wert; waehrend des
@@ -144,7 +175,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
     snapshot = next;
     render(ctx);
-    void enrichUpstream(ctx, next);
+    void resolveProvider(ctx, next);
   });
 
   pi.registerCommand(COMMAND_NAME, {
@@ -170,7 +201,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
       if (value.startsWith("lookup ")) {
         const mode = value.split(/\s+/)[1] ?? "";
-        return ["on", "off"]
+        return ["on", "off", "refresh"]
           .filter((entry) => entry.startsWith(mode))
           .map((entry) => ({ value: `lookup ${entry}`, label: entry }));
       }
@@ -249,16 +280,28 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       }
       case "lookup": {
         const mode = rest[0]?.toLowerCase();
+        if (mode === "refresh") {
+          await ensureCacheLoaded();
+          providerCache.clear();
+          if (snapshot) {
+            snapshot.upstreamProvider = null;
+            snapshot.providerSource = null;
+            render(ctx);
+            void resolveProvider(ctx, snapshot);
+          }
+          ctx.ui.notify("Provider-Cache geleert; Auflösung läuft.", "info");
+          return;
+        }
         if (mode !== "on" && mode !== "off") {
-          ctx.ui.notify(`Erwartet: /${COMMAND_NAME} lookup on|off`, "warning");
+          ctx.ui.notify(`Erwartet: /${COMMAND_NAME} lookup on|off|refresh`, "warning");
           return;
         }
         settings = { ...settings, lookupUpstreamProvider: mode === "on" };
         await saveSettings({ lookupUpstreamProvider: settings.lookupUpstreamProvider });
         render(ctx);
-        if (settings.lookupUpstreamProvider && snapshot) void enrichUpstream(ctx, snapshot);
+        if (settings.lookupUpstreamProvider && snapshot) void resolveProvider(ctx, snapshot);
         ctx.ui.notify(
-          `Upstream-Provider-Lookup ${settings.lookupUpstreamProvider ? "aktiviert" : "deaktiviert"}.`,
+          `Provider-Auflösung ${settings.lookupUpstreamProvider ? "aktiviert" : "deaktiviert"}.`,
           "info",
         );
         return;
@@ -272,17 +315,18 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const text = currentText();
         const state = settings.enabled ? "an" : "aus";
         const active = snapshot
-          ? `${snapshot.provider}/${snapshot.model}${snapshot.subscription ? " (subscription)" : ""}`
+          ? `${snapshot.provider}/${snapshot.requestModel}${snapshot.subscription ? " (subscription)" : ""}`
           : "noch kein API-Call";
         const tag = snapshot ? upstreamTag(snapshot) : null;
-        const tagSource = !snapshot || snapshot.provider !== "openrouter"
-          ? "-"
-          : snapshot.upstreamProvider
-            ? "upstream (generation API)"
-            : "model id";
+        const source = snapshot?.providerSource ?? "-";
+        const cached = snapshot ? providerCache.peek(snapshot.requestModel) : null;
+        const cacheInfo = cached
+          ? `cache:${cached.source}, ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s`
+          : "cache:-";
         ctx.ui.notify(
-          `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons} · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"}`
-          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${tagSource})`,
+          `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
+          + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (TTL ${settings.providerCacheTtlMinutes}min)`
+          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source}) · ${cacheInfo} · Cache-Einträge: ${providerCache.size()}`,
           "info",
         );
         return;
@@ -302,6 +346,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   function commandUsage(): string {
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
-      + `|icons <${ICON_MODES.join("|")}>|lookup <on|off>`;
+      + `|icons <${ICON_MODES.join("|")}>|lookup <on|off|refresh>`;
   }
 }
