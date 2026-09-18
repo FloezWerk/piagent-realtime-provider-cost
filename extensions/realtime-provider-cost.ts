@@ -27,7 +27,7 @@ import type {
   MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
-import { COLOR_NAMES, colorize, normalizeColorName } from "../src/color.ts";
+import { COLOR_NAMES, colorize, normalizeColorSpec } from "../src/color.ts";
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
@@ -290,7 +290,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       if (value.startsWith("color ") || value.startsWith("switchcolor ")) {
         const name = value.split(/\s+/)[1] ?? "";
         const head = value.startsWith("switchcolor") ? "switchColor" : "color";
-        return COLOR_NAMES
+        const presets = [...COLOR_NAMES, "bold:yellow", "bold:white"];
+        return presets
           .filter((entry) => entry.startsWith(name))
           .map((entry) => ({ value: `${head} ${entry}`, label: entry }));
       }
@@ -376,10 +377,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       }
       case "color":
       case "switchcolor": {
-        const name = normalizeColorName(rest[0]);
+        const name = normalizeColorSpec(rest[0]);
         if (!name) {
           ctx.ui.notify(
-            `Unbekannte Farbe "${rest[0] ?? ""}". Erlaubt: ${COLOR_NAMES.join(", ")}.`,
+            `Unbekannte Farbe "${rest[0] ?? ""}". Erlaubt: ${COLOR_NAMES.join(", ")}, `
+              + `Hex (#ffd700), 256-Code (226) und "bold:..." (bold:yellow).`,
             "warning",
           );
           return;
@@ -465,7 +467,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   function commandUsage(): string {
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
-      + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}>|switchColor <${COLOR_NAMES.join("|")}>`
-      + `|lookup <on|off|refresh>`;
+      + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...>`
+      + `|switchColor <...>|lookup <on|off|refresh>`;
   }
 }

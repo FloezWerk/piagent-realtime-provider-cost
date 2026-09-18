@@ -18,8 +18,21 @@ in:$2/out:$12     # ASCII-Modus (icons: ascii)
 > ersetzt, weil Private-Use-Glyphen deutlich kleiner gerendert werden.
 
 **Farbe:** standardmäßig **weiß**; wird ein **Providerwechsel** erkannt (neu
-ermittelter Provider ≠ bisher bekannter Provider), wird der Wert **gelb**
-dargestellt – der nächste Render ist wieder weiß.
+ermittelter Provider ≠ bisher bekannter Provider), wird der Wert **fett gelb**
+(`bold:yellow`) dargestellt – der nächste Render ist wieder weiß.
+
+Farbangaben sind frei wählbar:
+
+| Syntax | Beispiel | Ergebnis |
+| --- | --- | --- |
+| Palette | `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/91/92/96/95/94/90 |
+| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
+| 256-Farben | `226` (0-255) | `38;5;n` |
+| Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
+
+Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …)
+aus der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit
+sie dynamisch umschalten kann.
 
 Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
@@ -166,8 +179,8 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 | `/provider-cost refresh` | Wechselkurse neu laden |
 | `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
-| `/provider-cost color <name>` | Standardfarbe setzen (persistiert) |
-| `/provider-cost switchColor <name>` | Wechselfarbe (Providerwechsel) setzen (persistiert) |
+| `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert) |
+| `/provider-cost switchColor <spec>` | Wechselfarbe (Providerwechsel) setzen (persistiert) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
 
 ## Konfiguration
@@ -182,7 +195,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
     "currency": "EUR",
     "icons": "nerd",
     "color": "white",
-    "switchColor": "yellow",
+    "switchColor": "bold:yellow",
     "lookupUpstreamProvider": true,
     "providerCacheRefreshPrompts": 10
   }
@@ -194,8 +207,8 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | `enabled` | `true` | Anzeige ein/aus |
 | `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
 | `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
-| `color` | `"white"` | Standardfarbe: `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` |
-| `switchColor` | `"yellow"` | Farbe direkt nach erkanntem Providerwechsel |
+| `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
+| `switchColor` | `"bold:yellow"` | Farbe direkt nach erkanntem Providerwechsel |
 | `lookupUpstreamProvider` | `true` | Provider-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert (Routing-Einträge nie); `0` = immer neu auflösen |
 
