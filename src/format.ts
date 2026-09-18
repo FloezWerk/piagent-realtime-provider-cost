@@ -8,8 +8,10 @@ import { getPendingIcon, getPriceIcons, type IconMode } from "./icons.ts";
 import { upstreamTag, type RateSnapshot } from "./pricing.ts";
 
 /**
- * Per-segment colour specs. `input`/`output` colour only the price numbers and
- * fall back to `base` when unset; `base` colours the icons and the provider tag.
+ * Per-segment colour specs. `input`/`output` colour the section icon (arrow) and
+ * fall back to `base` when unset; `base` colours the numbers and the provider tag.
+ * Keeping the numbers in the base colour preserves readability on dark
+ * backgrounds - only the icon carries the deviation signal.
  */
 export interface PriceColors {
   base?: string;
@@ -60,9 +62,10 @@ export function composeStatus(
   colors: PriceColors = {},
 ): string {
   const icons = getPriceIcons(iconMode);
-  const input = paint(formatPrice(snapshot.inputUsdPerMillion, currency, rate), colors.input ?? colors.base);
-  const output = paint(formatPrice(snapshot.outputUsdPerMillion, currency, rate), colors.output ?? colors.base);
-  const base = `${paint(icons.input, colors.base)}${input}/${paint(icons.output, colors.base)}${output}`;
+  const input = paint(formatPrice(snapshot.inputUsdPerMillion, currency, rate), colors.base);
+  const output = paint(formatPrice(snapshot.outputUsdPerMillion, currency, rate), colors.base);
+  const base = `${paint(icons.input, colors.input ?? colors.base)}${input}/`
+    + `${paint(icons.output, colors.output ?? colors.base)}${output}`;
 
   const tag = snapshot.providerPending
     ? getPendingIcon(iconMode)

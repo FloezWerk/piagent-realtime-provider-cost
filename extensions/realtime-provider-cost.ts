@@ -112,7 +112,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       return colorize(composeStatus(snapshot, settings.currency, rate, icons), settings.switchColor);
     }
 
-    // Deviation of the effective price from the catalogue price -> colour per number.
+    // Deviation of the effective price from the catalogue price -> colour the
+    // section icon (arrow); the numbers stay in the base colour.
     const colors: PriceColors = {
       base: settings.color,
       input: styleDeviation(
@@ -125,7 +126,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     return composeStatus(snapshot, settings.currency, rate, icons, colors);
   }
 
-  /** Applies the configured SGR style (`bold`/`reverse`) to a deviation colour. */
+  /** Applies the configured SGR style (`bold`/`reverse`) to a deviation colour (icon). */
   function styleDeviation(spec: string | null): string | null {
     if (!spec || settings.deviationStyle === "plain") return spec;
     return `${settings.deviationStyle}:${spec}`;

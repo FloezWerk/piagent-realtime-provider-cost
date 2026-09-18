@@ -14,9 +14,9 @@ import { normalizeColorSpec } from "./color.ts";
 import { normalizeIconMode, type IconMode } from "./icons.ts";
 
 /**
- * SGR attributes applied to the deviation colours: `reverse` renders the number
- * as a coloured block (best contrast on dark backgrounds), `bold` only makes it
- * brighter/heavier, `plain` leaves the colour untouched.
+ * SGR attributes applied to the deviation colours (which are carried by the
+ * section icons): `bold` makes them brighter/heavier, `reverse` renders them as
+ * a coloured block, `plain` leaves the colour untouched.
  */
 export const DEVIATION_STYLES = ["plain", "bold", "reverse"] as const;
 export type DeviationStyle = (typeof DEVIATION_STYLES)[number];
@@ -64,7 +64,7 @@ export interface ExtensionSettings {
    * refreshed (routing entries never expire). 0 = always refresh.
    */
   providerCacheRefreshPrompts: number;
-  /** SGR attributes for the catalogue-deviation colours (input/output numbers). */
+  /** SGR attributes for the catalogue-deviation colours (input/output icons). */
   deviationStyle: DeviationStyle;
 }
 
@@ -77,8 +77,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   switchColor: "bold:#ffd700",
   lookupUpstreamProvider: true,
   providerCacheRefreshPrompts: 10,
-  // Reverse video makes the coloured numbers readable on dark backgrounds.
-  deviationStyle: "reverse",
+  // Plain colour on the arrows; the numbers stay in the base colour.
+  deviationStyle: "plain",
 };
 
 export function normalizeDeviationStyle(value: unknown): DeviationStyle | undefined {
