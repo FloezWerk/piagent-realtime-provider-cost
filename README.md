@@ -12,6 +12,7 @@ OpenRouter-Modellen steht zusätzlich der **bedienende Provider** als Tag hinten
 ↑$2/↓$12 (Fir)    # Pfeile (Unicode, volle Größe in jeder Font), Tag = Fireworks
 in:$2/out:$12     # ASCII-Modus (icons: ascii)
 ↑$2/↓$12 (⟳)      # Provider/Kosten werden gerade per Generation-API ermittelt
+↑$1.5/↓$6 (?)     # Modell gerade gewechselt: Katalogpreise, Provider noch unbekannt
 ```
 
 **Farbe:** normal **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
@@ -235,6 +236,14 @@ Auf **maximal 4 Nachkommastellen** gerundet, überflüssige Nullen entfernt
   - **Modelwechsel** (anderes Request-Model als beim vorherigen Call) →
     erzwungener Refresh von Provider **und** Kosten, auch wenn der Cache noch
     frisch wäre. Ein Session-Restore mit gleichem Model ist kein Wechsel.
+
+- **Vorschau beim Modellwechsel.** Beim Umschalten des Modells (`model_select`)
+  werden sofort die **Katalogpreise** (`models-store.json`) des neuen Modells
+  angezeigt. Der bedienende Provider steht zu diesem Zeitpunkt noch nicht fest
+  (der erste Call des neuen Modells läuft noch) → der Tag zeigt `?`. Sobald die
+  erste Antwort eintrifft, ersetzt der echte Wert (inkl. Provider-Tag bzw. `⟳`
+  während der Auflösung) die Vorschau. Stufentarife werden in der Vorschau nicht
+  berücksichtigt – ohne Tokenzahlen sind nur die Basis-Sätze bekannt.
   - **`/provider-cost refresh`** → lädt die Wechselkurse **und** erzwingt einen
     Generation-API-Call (Provider + Kosten), sofern möglich (OpenRouter,
     `lookupUpstreamProvider` aktiv, `responseId` vorhanden, kein Lookup läuft

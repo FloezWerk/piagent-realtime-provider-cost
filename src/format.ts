@@ -33,8 +33,9 @@ export function formatPrice(amountUsd: number | null, currency: CurrencyCode, ra
  * Format: `<in-icon><out-icon>` arrows plus an optional trailing
  * ` (<provider>)` tag, e.g. `↑$2/↓$12 (Fir)`.
  * The tag is only appended for OpenRouter. While the generation-API lookup is
- * running, a "update in progress" icon is shown instead of hiding the tag;
- * if the provider stays unknown, the tag is omitted entirely.
+ * running, a "update in progress" icon is shown instead of hiding the tag; for a
+ * mere catalogue preview (model just switched) it is `?`; if the provider stays
+ * unknown after the call, the tag is omitted entirely.
  */
 export function composeStatus(
   snapshot: RateSnapshot,
@@ -47,6 +48,18 @@ export function composeStatus(
   const output = formatPrice(snapshot.outputUsdPerMillion, currency, rate);
   const base = `${icons.input}${input}/${icons.output}${output}`;
 
-  const tag = snapshot.providerPending ? getPendingIcon(iconMode) : upstreamTag(snapshot);
+  const tag = snapshot.providerPending
+    ? getPendingIcon(iconMode)
+    : upstreamTag(snapshot) ?? previewTag(snapshot);
   return tag ? `${base} (${tag})` : base;
+}
+
+/**
+ * `?` while a freshly selected OpenRouter model has not been served yet: the
+ * catalogue prices are shown, but the serving provider is still unknown.
+ */
+function previewTag(snapshot: RateSnapshot): string | null {
+  if (!snapshot.cataloguePreview) return null;
+  if (snapshot.provider !== "openrouter") return null;
+  return "?";
 }

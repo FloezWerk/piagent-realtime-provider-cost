@@ -25,6 +25,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
   MessageEndEvent,
+  ModelSelectEvent,
 } from "@earendil-works/pi-coding-agent";
 
 import { COLOR_NAMES, colorize, normalizeColorSpec } from "../src/color.ts";
@@ -36,6 +37,7 @@ import { certainRoutingProvider } from "../src/model-routing.ts";
 import {
   snapshotFromBranch,
   snapshotFromMessage,
+  snapshotFromModel,
   upstreamTag,
   type ModelRegistryLike,
   type ProviderSource,
@@ -143,6 +145,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     target.inputUsdPerMillion = input;
     target.outputUsdPerMillion = output;
     target.ratesFromApi = true;
+    // Real rates have arrived -> no longer a catalogue preview.
+    target.cataloguePreview = false;
     render(ctx);
   }
 
@@ -271,6 +275,19 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   // Nur finalisierte Assistant-Nachrichten aktualisieren den Wert; waehrend des
   // Streamings bleibt der alte Wert stehen.
+  // Switching the model immediately previews the catalogue prices of the new
+  // model. There is no serving provider yet, so the tag shows "?".
+  pi.on("model_select", (event: ModelSelectEvent, ctx: ExtensionContext) => {
+    const next = snapshotFromModel(event.model, registry(ctx));
+    if (!next) return;
+
+    switchHighlight = false;
+    snapshot = next;
+    // `lastModel` stays untouched: the first call of the new model is still
+    // detected as a model change and therefore forces a provider/cost refresh.
+    render(ctx);
+  });
+
   pi.on("message_end", (event: MessageEndEvent, ctx: ExtensionContext) => {
     const next = snapshotFromMessage(event.message, registry(ctx));
     if (!next) return;
@@ -480,7 +497,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           + ` · Farben: ${settings.color}/${settings.switchColor}`
           + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
           + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source})`
-          + ` · Preise: ${snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
+          + ` · Preise: ${snapshot?.cataloguePreview ? "katalog (Vorschau)" : snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
           + ` · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
           "info",
         );

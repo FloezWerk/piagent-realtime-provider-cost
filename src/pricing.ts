@@ -70,6 +70,12 @@ export interface RateSnapshot {
   tokens: { input: number; output: number; cacheRead: number };
   /** Rates come from the generation API + provider prices instead of the catalogue. */
   ratesFromApi: boolean;
+  /**
+   * Snapshot was built from the catalogue prices of a freshly selected model,
+   * before its first API call. The serving provider is still unknown and is
+   * rendered as `?`.
+   */
+  cataloguePreview: boolean;
   /** Model is subscription-backed -> the whole status item is hidden. */
   subscription: boolean;
 }
@@ -166,7 +172,48 @@ export function snapshotFromMessage(
       cacheRead: message.usage.cacheRead,
     },
     ratesFromApi: false,
+    cataloguePreview: false,
     subscription: isSubscription(message.provider, requestModel, registry),
+  };
+}
+
+/**
+ * Builds a preview snapshot from the catalogue prices (`models-store.json`) of a
+ * model that was just selected.
+ *
+ * Until the first API call of the new model completes there is no serving
+ * provider - the tag therefore shows `?` (see `composeStatus`). Tiered pricing
+ * is not applied yet either: without token counts only the base rates are known.
+ * Returns null when the model has no provider/id; missing prices render as `?`.
+ */
+export function snapshotFromModel(
+  model: unknown,
+  registry: ModelRegistryLike | undefined,
+): RateSnapshot | null {
+  if (!isRecord(model)) return null;
+
+  const provider = typeof model.provider === "string" ? model.provider.trim() : "";
+  const id = typeof model.id === "string" ? model.id.trim() : "";
+  if (!provider || !id) return null;
+
+  const cost = isRecord(model.cost) ? model.cost : {};
+  const input = typeof cost.input === "number" ? cost.input : null;
+  const output = typeof cost.output === "number" ? cost.output : null;
+
+  return {
+    inputUsdPerMillion: input,
+    outputUsdPerMillion: output,
+    provider,
+    model: id,
+    requestModel: id,
+    responseId: null,
+    upstreamProvider: null,
+    providerSource: null,
+    providerPending: false,
+    tokens: { input: 0, output: 0, cacheRead: 0 },
+    ratesFromApi: false,
+    cataloguePreview: true,
+    subscription: isSubscription(provider, id, registry),
   };
 }
 
