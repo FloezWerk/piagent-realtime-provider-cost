@@ -1,33 +1,187 @@
 # piagent-realtime-provider-cost
 
-Pi-Extension, die in der Statusleiste die **effektiven Tokenpreise (Input/Output,
-pro 1 Mio. Tokens)** des Providers/Modells des **letzten API-Calls** anzeigt –
-direkt neben der Session-Kostensumme.
+Zeigt in der Pi-Statusleiste die **effektiven Tokenpreise (Input/Output, pro 1 Mio.
+Tokens)** des **letzten API-Calls** an – direkt neben der Session-Kostensumme.
 
-Format: `<in>/<out>` plus optionales Provider-Tag **hinten**. Das Tag zeigt den
-von OpenRouter gewählten **Serving-/Routing-Provider** (z. B. `Fir` → Fireworks)
-und erscheint **nur** bei OpenRouter.
+Im Unterschied zur Kostensumme des Core-Footers sind das die **tatsächlich von
+OpenRouter abgerechneten** Sätze (inkl. Provider-Routing, Discounts und
+Peak-Overrides), nicht die Katalogpreise aus `models-store.json`. Bei
+OpenRouter-Modellen steht zusätzlich der **bedienende Provider** als Tag hinten dran.
 
 ```
-↑$2/↓$12 (Fir)    # Pfeile (Unicode, volle Größe in jeder Font)
+↑$2/↓$12 (Fir)    # Pfeile (Unicode, volle Größe in jeder Font), Tag = Fireworks
 in:$2/out:$12     # ASCII-Modus (icons: ascii)
-↑$2/↓$12 (⟳)      # Provider wird gerade per Generation-API ermittelt
+↑$2/↓$12 (⟳)      # Provider/Kosten werden gerade per Generation-API ermittelt
 ```
+
+**Farbe:** normal **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
+(`bold:#ffd700`), danach wieder weiß (Details: [Farben](#farben)).
+
+Alle Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
+
+## Installation
+
+```bash
+pi install ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git
+```
+
+Lokal/Entwicklung:
+
+```bash
+pi -e ./extensions/realtime-provider-cost.ts
+```
+
+Nach Änderungen in einer laufenden Session: `/reload`.
+
+Danach ist die Extension sofort aktiv – **ohne weitere Konfiguration** erscheint
+der Wert im Footer neben der Kostensumme. Wenn du die Powerline-Leiste benutzt,
+sollte das Element zusätzlich dort eingehängt werden (nächster Abschnitt).
+
+## Einrichtung
+
+### Ohne pi-powerline-footer
+
+Funktioniert eigenständig: `ctx.ui.setStatus` ist eine Core-API, der Core-Footer
+zeigt den Wert als eigene Zeile unter der Statuszeile.
+
+### Mit pi-powerline-footer (empfohlen)
+
+Ein Custom-Item ergänzen, das den Statuskanal `realtime-provider-cost` liest:
+
+```jsonc
+{
+  "powerline": {
+    "preset": "default",
+    "customItems": [
+      {
+        "id": "provider-cost",
+        "statusKey": "realtime-provider-cost",
+        "position": "right",
+        "color": "warning",
+        "selfColorize": true,
+        "hideWhenMissing": true,
+        "excludeFromExtensionStatuses": true
+      }
+    ]
+  }
+}
+```
+
+Explizite Positionierung direkt neben `cost` via `powerline.layout`:
+
+```jsonc
+{
+  "powerline": {
+    "layout": {
+      "left": ["model", "thinking", "shell_mode", "path", "git", "queue", "context_pct", "cache_read", "cost", "custom:provider-cost"]
+    },
+    "customItems": [
+      { "id": "provider-cost", "statusKey": "realtime-provider-cost", "selfColorize": true }
+    ]
+  }
+}
+```
+
+> **Wichtig:** `selfColorize: true` setzen. Sonst entfernt Powerline die
+> ANSI-Farbcodes des Items und färbt selbst ein – die dynamische
+> Weiß/Gold-Umschaltung beim Providerwechsel ginge verloren.
+
+## Farben
+
+Standardmäßig **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
+(`bold:#ffd700`), danach wieder weiß. Setzbar über `/provider-cost color …` bzw.
+`/provider-cost switchColor …` oder die Settings `color` / `switchColor`.
+
+Farbangaben sind frei wählbar:
+
+| Syntax | Beispiel | Ergebnis |
+| --- | --- | --- |
+| Palette | `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/91/92/96/95/94/90 |
+| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
+| 256-Farben | `226` (0-255) | `38;5;n` |
+| Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
+
+Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …) aus
+der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit sie
+dynamisch umschalten kann (siehe `selfColorize` oben).
+
+Gängige Alternativen für den Wechsel-Highlight:
+
+```bash
+/provider-cost switchColor bold:#ffd700   # Default: fett gold (truecolor)
+/provider-cost switchColor bold:220       # gold, 256-Farben (überall verfügbar)
+/provider-cost switchColor bold:226       # reines Gelb, 256-Farben
+/provider-cost switchColor bold:yellow    # fett hellgelb
+/provider-cost color none                 # gar keine Einfärbung
+```
+
+## Befehle
+
+| Befehl | Wirkung |
+| --- | --- |
+| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icons, Farben, Lookup+Refresh-Intervall, Anzeige, Tag/Quelle, Cache-Alter in Prompts |
+| `/provider-cost on` | Anzeige einschalten (persistiert) |
+| `/provider-cost off` | Anzeige ausschalten (persistiert) |
+| `/provider-cost toggle` | Umschalten (persistiert) |
+| `/provider-cost refresh` | Wechselkurse neu laden **und** Provider/Kosten per Generation-API neu ermitteln (falls möglich) |
+| `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
+| `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
+| `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert, s. [Farben](#farben)) |
+| `/provider-cost switchColor <spec>` | Wechselfarbe (Providerwechsel) setzen (persistiert, s. [Farben](#farben)) |
+| `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung ein/aus; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
+
+## Konfiguration
+
+In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost` (analog
+zum Extension-Namen). Andere Keys bleiben unangetastet; alle Werte sind auch per
+Befehl setzbar.
+
+```jsonc
+{
+  "realtime-provider-cost": {
+    "enabled": true,
+    "currency": "EUR",
+    "icons": "nerd",
+    "color": "white",
+    "switchColor": "bold:#ffd700",
+    "lookupUpstreamProvider": true,
+    "providerCacheRefreshPrompts": 10
+  }
+}
+```
+
+| Feld | Default | Beschreibung |
+| --- | --- | --- |
+| `enabled` | `true` | Anzeige ein/aus |
+| `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
+| `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
+| `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
+| `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
+| `lookupUpstreamProvider` | `true` | Provider/Kosten-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
+| `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert; `0` = immer neu auflösen |
+
+### Icons
+
+1. Env `PROVIDER_COST_NERD_FONTS=1` (nerd) / `=0` (ascii)
+2. Config `icons`
+3. `auto`: Heuristik wie Powerline (`GHOSTTY_RESOURCES_DIR` bzw.
+   `TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku)
+
+Viele Terminals setzen nur `TERM=xterm-256color` → `auto` liefert ASCII
+(`in:`/`out:`); für Icons `icons: "nerd"` bzw. `/provider-cost icons nerd`.
 
 > Die vorher genutzten Nerd-Font-Pfeile (`U+F090`/`U+F08B`) wurden durch `↑`/`↓`
 > ersetzt, weil Private-Use-Glyphen deutlich kleiner gerendert werden.
 
-**Farbe:** standardmäßig **weiß**; wird ein **Providerwechsel** erkannt (neu
-ermittelter Provider ≠ bisher bekannter Provider), wird der Wert **fett gold**
-(`bold:#ffd700`) dargestellt – der nächste Render ist wieder weiß (Details:
-[Farben](#farben)).
+### Rundung
 
-Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
+Auf **maximal 4 Nachkommastellen** gerundet, überflüssige Nullen entfernt
+(`$2`, `$12.5`, `$0.2896`).
 
 ## Funktionsweise
 
-- **Echte Abrechnung statt Katalogpreis.** Quelle der Zahlen ist OpenRouter:
-  die **Generation-API** liefert `total_cost` (tatsächlich berechnet) und die
+- **Echte Abrechnung statt Katalogpreis.** Quelle der Zahlen ist OpenRouter: die
+  **Generation-API** liefert `total_cost` (tatsächlich berechnet) und die
   Token-Zahlen, die **Endpoint-Preise** liefern das Verhältnis der Buckets
   (Input/Output/Cache) des tatsächlich bedienenden Providers:
 
@@ -39,9 +193,9 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
   ```
 
   Der `factor` sorgt dafür, dass die Anzeige der Rechnung entspricht, auch wenn
-  Endpoint-Preise (noch) nicht exakt dem abgerechneten Satz entsprechen.
-  Solange keine API-Daten vorliegen, wird die Näherung aus `usage.cost.*`
-  (Pi-Katalog) angezeigt.
+  Endpoint-Preise (noch) nicht exakt dem abgerechneten Satz entsprechen. Solange
+  keine API-Daten vorliegen, wird die Näherung aus `usage.cost.*` (Pi-Katalog)
+  angezeigt.
 
 - **Auflösung.** Reihenfolge:
   1. **Routing-Constraint** aus `models.json`
@@ -71,9 +225,10 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
     `lookupUpstreamProvider` aktiv, `responseId` vorhanden, kein Lookup läuft
     bereits). Cache leeren vorher mit `/provider-cost lookup refresh`.
 
-  Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel
-  bei `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut
-  nach dem 10. weiteren Prompt.
+  Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel bei
+  `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut nach
+  dem 10. weiteren Prompt.
+
 - **Invalidierung per Aufruf-Zähler:** Es gibt kein Signal, das einen
   Providerwechsel pro Response verrät (Model-Slug, `system_fingerprint`,
   `native_finish_reason`, `service_tier` sind provider-unabhängig). Bei sicherem
@@ -93,166 +248,23 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 - **Währungsumrechnung** analog `pi-powerline-footer` (gleiche Quelle, 24h-Cache,
   eigene Datei `…/realtime-provider-cost/currency-rates.json`); unabhängig von
   Powerline.
+- **Kein Eingriff in Pi:** Die Extension ersetzt weder Footer noch Kostenrechnung;
+  die Session-Kostensumme daneben bleibt Pi's Katalogwert.
 
-## Warum der Umweg über die Generation-API?
+## Hintergrund: warum der Umweg über die Generation-API?
 
 OpenRouter liefert den Serving-Provider im Stream-Chunk als `provider`-Feld, Pi
 (`pi-ai`) verwirft es jedoch (liest nur `chunk.id` und `chunk.model`). Ebenso
 verwirft Pi den tatsächlichen Kostenbetrag (`usage.cost`) und berechnet Kosten aus
 der Preistabelle (`models-store.json`) – die den **Modell-Basispreis**, nicht den
-Preis des gerouteten Providers abbildet. Ein Provider-Header existiert nicht
-(`X-Provider-Name` ist nur als „exposed" gelistet, wird aber nicht gesendet).
-
-## Integration
-
-### Ohne pi-powerline-footer
-
-Funktioniert eigenständig. `ctx.ui.setStatus` ist eine Core-API; der Core-Footer
-zeigt den Wert als eigene Zeile.
-
-### Mit pi-powerline-footer (empfohlen)
-
-```jsonc
-{
-  "powerline": {
-    "preset": "default",
-    "customItems": [
-      {
-        "id": "provider-cost",
-        "statusKey": "realtime-provider-cost",
-        "position": "right",
-        "color": "warning",
-        "hideWhenMissing": true,
-        "excludeFromExtensionStatuses": true
-      }
-    ]
-  }
-}
-```
-
-Explizite Positionierung neben `cost` via `powerline.layout`:
-
-```jsonc
-{
-  "powerline": {
-    "layout": {
-      "left": ["model", "thinking", "shell_mode", "path", "git", "queue", "context_pct", "cache_read", "cost", "custom:provider-cost"]
-    },
-    "customItems": [
-      { "id": "provider-cost", "statusKey": "realtime-provider-cost", "selfColorize": true }
-    ]
-  }
-}
-```
-
-> **Wichtig:** `selfColorize: true` setzen, sonst entfernt Powerline die
-> ANSI-Farbcodes des Items und färbt selbst ein – die dynamische Weiß/Gelb-Umschaltung
-> ginge verloren.
-
-## Installation
-
-```bash
-pi install ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git
-```
-
-Lokal (Entwicklung):
-
-```bash
-pi -e ./extensions/realtime-provider-cost.ts
-```
-
-Nach Änderungen in einer laufenden Session: `/reload`.
-
-## Farben
-
-Standardmäßig **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
-(`bold:#ffd700`), danach wieder weiß. Setzbar über `/provider-cost color …` bzw.
-`/provider-cost switchColor …` oder die Settings `color` / `switchColor`.
-
-Farbangaben sind frei wählbar:
-
-| Syntax | Beispiel | Ergebnis |
-| --- | --- | --- |
-| Palette | `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/91/92/96/95/94/90 |
-| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
-| 256-Farben | `226` (0-255) | `38;5;n` |
-| Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
-
-Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …)
-aus der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit
-sie dynamisch umschalten kann. (Bei Powerline daher `selfColorize: true` setzen,
-s. [Integration](#mit-pi-powerline-footer-empfohlen).)
-
-Gängige Alternativen für den Wechsel-Highlight:
-
-```bash
-/provider-cost switchColor bold:#ffd700   # Default: fett gold (truecolor)
-/provider-cost switchColor bold:220       # gold, 256-Farben (überall verfügbar)
-/provider-cost switchColor bold:226       # reines Gelb, 256-Farben
-/provider-cost switchColor bold:yellow    # fett hellgelb
-```
-
-## Befehle
-
-| Befehl | Wirkung |
-| --- | --- |
-| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icons, Lookup+Refresh-Intervall, Anzeige, Tag/Quelle, Cache-Alter in Prompts |
-| `/provider-cost on` | Anzeige einschalten (persistiert) |
-| `/provider-cost off` | Anzeige ausschalten (persistiert) |
-| `/provider-cost toggle` | Umschalten (persistiert) |
-| `/provider-cost refresh` | Wechselkurse neu laden **und** Provider/Kosten per Generation-API neu ermitteln (falls möglich) |
-| `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
-| `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
-| `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert, s. [Farben](#farben)) |
-| `/provider-cost switchColor <spec>` | Wechselfarbe (Providerwechsel) setzen (persistiert, s. [Farben](#farben)) |
-| `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
-
-## Konfiguration
-
-In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
-(analog zum Extension-Namen). Andere Keys bleiben unangetastet.
-
-```jsonc
-{
-  "realtime-provider-cost": {
-    "enabled": true,
-    "currency": "EUR",
-    "icons": "nerd",
-    "color": "white",
-    "switchColor": "bold:#ffd700",
-    "lookupUpstreamProvider": true,
-    "providerCacheRefreshPrompts": 10
-  }
-}
-```
-
-| Feld | Default | Beschreibung |
-| --- | --- | --- |
-| `enabled` | `true` | Anzeige ein/aus |
-| `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
-| `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
-| `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
-| `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
-| `lookupUpstreamProvider` | `true` | Provider-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
-| `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert (Routing-Einträge nie); `0` = immer neu auflösen |
-
-### Icons
-
-1. Env `PROVIDER_COST_NERD_FONTS=1` (nerd) / `=0` (ascii)
-2. Config `icons`
-3. `auto`: Heuristik wie Powerline (`GHOSTTY_RESOURCES_DIR` bzw.
-   `TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku);
-
-Viele Terminals setzen nur `TERM=xterm-256color` → `auto` liefert ASCII
-(`in:`/`out:`); für Icons `icons: "nerd"` bzw. `/provider-cost icons nerd`.
-
-### Rundung
-
-Auf **maximal 4 Nachkommastellen** gerundet, überflüssige Nullen entfernt
-(`$2`, `$12.5`, `$0.2896`).
+Preis des gerouteten Providers abbildet (Beispiel `deepseek/deepseek-v4.1-flash`
+via Fireworks: Katalog 0.15/0.60 vs. real 0.22/0.66). Ein Provider-Header
+existiert nicht (`X-Provider-Name` ist nur als „exposed" gelistet, wird aber
+nicht gesendet). Die Generation-API ist damit die einzige verlässliche Quelle für
+Provider und abgerechneten Betrag.
 
 ## Abhängigkeiten
 
-`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent` und `@earendil-works/pi-tui`
-werden von Pi gebündelt und sind daher nur als optionale `peerDependencies` deklariert.
-Keine Laufzeit-Abhängigkeiten zu anderen Extensions.
+`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent` und
+`@earendil-works/pi-tui` werden von Pi gebündelt und sind daher nur als optionale
+`peerDependencies` deklariert. Keine Laufzeit-Abhängigkeiten zu anderen Extensions.

@@ -1,6 +1,6 @@
 {
   "name": "piagent-realtime-provider-cost",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "private": true,
   "description": "Pi extension: shows the effective token prices (input/output, per 1M tokens) of the provider/model of the last API call in the status bar.",
   "keywords": [
