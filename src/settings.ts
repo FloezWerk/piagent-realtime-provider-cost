@@ -43,11 +43,14 @@ export interface ExtensionSettings {
   icons: IconMode;
   /**
    * Resolve the actual OpenRouter serving provider (routing constraint or
-   * generation API). Generation results are cached per model for the TTL below.
+   * generation API). Generation results are cached per model.
    */
   lookupUpstreamProvider: boolean;
-  /** TTL in minutes for generation-API cache entries (routing entries never expire). */
-  providerCacheTtlMinutes: number;
+  /**
+   * Number of user prompts after which a generation-based cache entry is
+   * refreshed (routing entries never expire). 0 = always refresh.
+   */
+  providerCacheRefreshPrompts: number;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -55,7 +58,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   currency: "USD",
   icons: "auto",
   lookupUpstreamProvider: true,
-  providerCacheTtlMinutes: 30,
+  providerCacheRefreshPrompts: 10,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,12 +100,12 @@ export async function loadSettings(): Promise<ExtensionSettings> {
       typeof section.lookupUpstreamProvider === "boolean"
         ? section.lookupUpstreamProvider
         : DEFAULT_SETTINGS.lookupUpstreamProvider,
-    providerCacheTtlMinutes:
-      typeof section.providerCacheTtlMinutes === "number" &&
-      Number.isFinite(section.providerCacheTtlMinutes) &&
-      section.providerCacheTtlMinutes >= 0
-        ? section.providerCacheTtlMinutes
-        : DEFAULT_SETTINGS.providerCacheTtlMinutes,
+    providerCacheRefreshPrompts:
+      typeof section.providerCacheRefreshPrompts === "number" &&
+      Number.isFinite(section.providerCacheRefreshPrompts) &&
+      section.providerCacheRefreshPrompts >= 0
+        ? Math.floor(section.providerCacheRefreshPrompts)
+        : DEFAULT_SETTINGS.providerCacheRefreshPrompts,
   };
 }
 

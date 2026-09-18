@@ -70,10 +70,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     return ctx.modelRegistry as unknown as RegistryFacade | undefined;
   }
 
-  function cacheTtlMs(): number {
-    return Math.max(0, settings.providerCacheTtlMinutes) * 60_000;
-  }
-
   async function ensureCacheLoaded(): Promise<void> {
     if (cacheLoaded) return;
     cacheLoaded = true;
@@ -127,8 +123,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       // Ignore and fall through to the cache.
     }
 
-    // 2) Persistent cache.
-    const cached = providerCache.get(target.requestModel, cacheTtlMs());
+    // 2) Persistent cache (generation entries expire after N prompts).
+    const cached = providerCache.get(target.requestModel, settings.providerCacheRefreshPrompts);
     if (cached) {
       applyProvider(ctx, target, cached.provider, cached.source);
       return;
@@ -155,6 +151,12 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       lookupsInFlight.delete(key);
     }
   }
+
+  // Prompt counter for the prompt-count based cache invalidation.
+  pi.on("before_agent_start", async () => {
+    await ensureCacheLoaded();
+    providerCache.bumpPromptCount();
+  });
 
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
     settings = await loadSettings();
@@ -320,13 +322,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const tag = snapshot ? upstreamTag(snapshot) : null;
         const source = snapshot?.providerSource ?? "-";
         const cached = snapshot ? providerCache.peek(snapshot.requestModel) : null;
+        const prompts = providerCache.promptCount();
         const cacheInfo = cached
-          ? `cache:${cached.source}, ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s`
+          ? `cache:${cached.source}, age:${prompts - cached.promptCount} prompts`
           : "cache:-";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
-          + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (TTL ${settings.providerCacheTtlMinutes}min)`
-          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source}) · ${cacheInfo} · Cache-Einträge: ${providerCache.size()}`,
+          + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
+          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source}) · ${cacheInfo} · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
           "info",
         );
         return;

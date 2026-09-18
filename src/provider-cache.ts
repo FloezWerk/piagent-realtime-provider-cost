@@ -3,9 +3,13 @@
  *
  * Goal: avoid one REST call per response. An entry is either
  * - `routing`   – derived statically from the model's `openRouterRouting.only`
- *                 constraint (no call, effectively permanent), or
- * - `generation` – resolved once via the generation API and reused until the TTL
- *                 expires.
+ *                 constraint (no call, never expires), or
+ * - `generation` – resolved once via the generation API and reused for the next
+ *                 `providerCacheRefreshPrompts` user prompts.
+ *
+ * Invalidation is prompt-count based (not time based): a generation entry stays
+ * valid as long as fewer than N prompts have been submitted since it was stored.
+ * The prompt counter is persisted so the semantics survive restarts.
  */
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -18,10 +22,14 @@ export interface ProviderCacheEntry {
   provider: string;
   source: ProviderSource;
   fetchedAt: number;
+  /** Prompt counter value at the time the entry was stored. */
+  promptCount: number;
 }
 
 interface CacheFile {
   version: 1;
+  /** Monotonic count of submitted user prompts. */
+  promptCount?: number;
   entries: Record<string, ProviderCacheEntry>;
 }
 
@@ -35,6 +43,7 @@ function cachePath(): string {
 
 export class ProviderCache {
   private entries: Map<string, ProviderCacheEntry> = new Map();
+  private prompts = 0;
   private loaded = false;
   private writing = false;
   private dirty = false;
@@ -46,40 +55,71 @@ export class ProviderCache {
 
     try {
       const raw: unknown = JSON.parse(await readFile(cachePath(), "utf8"));
-      if (!isRecord(raw) || !isRecord(raw.entries)) return;
+      if (!isRecord(raw)) return;
 
+      if (typeof raw.promptCount === "number" && Number.isFinite(raw.promptCount) && raw.promptCount >= 0) {
+        this.prompts = Math.floor(raw.promptCount);
+      }
+
+      if (!isRecord(raw.entries)) return;
       for (const [model, value] of Object.entries(raw.entries)) {
         if (!isRecord(value)) continue;
         const provider = value.provider;
         const source = value.source;
         const fetchedAt = value.fetchedAt;
+        const promptCount = value.promptCount;
         if (typeof provider !== "string" || !provider.trim()) continue;
         if (source !== "routing" && source !== "generation") continue;
         if (typeof fetchedAt !== "number") continue;
 
-        this.entries.set(model, { provider: provider.trim(), source, fetchedAt });
+        this.entries.set(model, {
+          provider: provider.trim(),
+          source,
+          fetchedAt,
+          promptCount: typeof promptCount === "number" && Number.isFinite(promptCount) ? promptCount : 0,
+        });
       }
     } catch {
       // Missing/corrupt cache is fine.
     }
   }
 
-  /** Returns a still-valid entry, or null. `routing` entries never expire. */
-  get(model: string, ttlMs: number): ProviderCacheEntry | null {
+  /** Monotonic prompt counter. */
+  promptCount(): number {
+    return this.prompts;
+  }
+
+  /** Increments the prompt counter (called once per submitted user prompt). */
+  bumpPromptCount(): void {
+    this.prompts += 1;
+    void this.persist();
+  }
+
+  /**
+   * Returns a still-valid entry, or null. `routing` entries never expire;
+   * `generation` entries expire after `refreshPrompts` further prompts.
+   */
+  get(model: string, refreshPrompts: number): ProviderCacheEntry | null {
     const entry = this.entries.get(model);
     if (!entry) return null;
     if (entry.source === "routing") return entry;
-    if (Date.now() - entry.fetchedAt < ttlMs) return entry;
-    return null;
+
+    const age = this.prompts - entry.promptCount;
+    return age < Math.max(0, refreshPrompts) ? entry : null;
   }
 
-  /** Returns the entry regardless of TTL (for status output). */
+  /** Returns the entry regardless of age (for status output). */
   peek(model: string): ProviderCacheEntry | null {
     return this.entries.get(model) ?? null;
   }
 
   set(model: string, provider: string, source: ProviderSource): void {
-    this.entries.set(model, { provider, source, fetchedAt: Date.now() });
+    this.entries.set(model, {
+      provider,
+      source,
+      fetchedAt: Date.now(),
+      promptCount: this.prompts,
+    });
     void this.persist();
   }
 
@@ -104,6 +144,7 @@ export class ProviderCache {
           this.dirty = false;
           const payload: CacheFile = {
             version: 1,
+            promptCount: this.prompts,
             entries: Object.fromEntries(this.entries),
           };
 

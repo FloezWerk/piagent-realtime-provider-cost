@@ -33,11 +33,20 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
      genau ein Provider) → Provider statisch bekannt, **0 API-Calls**.
   2. **Persistenter Cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
      Key = Request-Model. `routing`-Einträge laufen nie ab; `generation`-Einträge
-     laufen nach `providerCacheTtlMinutes` ab.
+     werden nach `providerCacheRefreshPrompts` **Prompts** (nicht nach Zeit)
+     ungültig.
   3. **Generation-API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
      – nur bei Cache-Miss/-Ablauf, max. 1 Call pro Model gleichzeitig. Die Daten
      sind erst einige Sekunden nach dem Call verfügbar → Retry mit Backoff
      (1s/2s/4s/8s). Ergebnis wird gecacht.
+
+  Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel
+  bei `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut
+  nach dem 10. weiteren Prompt.
+- **Invalidierung per Aufruf-Zähler:** Es gibt kein Signal, das einen
+  Providerwechsel pro Response verrät (Model-Slug, `system_fingerprint`,
+  `native_finish_reason`, `service_tier` sind provider-unabhängig). Der Provider
+  ist kurzfristig stabil, daher wird nach N Prompts neu aufgelöst.
 - **Kein Batch-Endpoint:** OpenRouter bietet weder Mehrfach-IDs noch eine
   Generations-Liste; `/api/v1/activity` erfordert einen Management-Key.
 - **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert
@@ -119,7 +128,7 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 
 | Befehl | Wirkung |
 | --- | --- |
-| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icons, Lookup+TTL, Anzeige, Tag/Quelle, Cache |
+| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icons, Lookup+Refresh-Intervall, Anzeige, Tag/Quelle, Cache-Alter in Prompts |
 | `/provider-cost on` | Anzeige einschalten (persistiert) |
 | `/provider-cost off` | Anzeige ausschalten (persistiert) |
 | `/provider-cost toggle` | Umschalten (persistiert) |
@@ -140,7 +149,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
     "currency": "EUR",
     "icons": "nerd",
     "lookupUpstreamProvider": true,
-    "providerCacheTtlMinutes": 30
+    "providerCacheRefreshPrompts": 10
   }
 }
 ```
@@ -151,7 +160,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
 | `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` |
 | `lookupUpstreamProvider` | `true` | Provider-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
-| `providerCacheTtlMinutes` | `30` | TTL für `generation`-Cacheeinträge (Routing-Einträge laufen nie ab); `0` = immer neu auflösen |
+| `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert (Routing-Einträge nie); `0` = immer neu auflösen |
 
 ### Icons
 
