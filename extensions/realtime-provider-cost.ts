@@ -156,9 +156,12 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    *   2. cached real rates (refreshed every N prompts)
    *   3. generation API + provider price list for the actually billed amount
    *
-   * Step 3 is mandatory whenever the provider is not certain: with
-   * `allow_fallbacks` (OpenRouter default) another provider may serve the
-   * request even though `only` lists just one.
+   * Step 3 only runs on a cache miss, after the cache entry expired (see
+   * `providerCache.get` / `providerCacheRefreshPrompts`) or when the model just
+   * changed (`force`). A valid cache entry covers the whole refresh window even
+   * when the provider is not certain: with `allow_fallbacks` (OpenRouter
+   * default) another provider may serve the request even though `only` lists
+   * just one, but that is exactly what the cached generation result reflects.
    */
   async function resolveProvider(
     ctx: ExtensionContext,
@@ -204,9 +207,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (cachedRates && cached) {
       if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
       applyRates(ctx, target, cachedRates.input, cachedRates.output);
-      // With a certain provider the cached rates are all we need - unless the
-      // model just changed, which always forces a fresh lookup.
-      if (certain && !force) return;
+      // A still-valid cache entry is enough - for certain routing providers as
+      // well as for generation results. Only a model switch (`force`) or an
+      // expired entry (cached === null above) triggers a fresh lookup, so the
+      // "update in progress" marker is not shown on every prompt.
+      if (!force) return;
     }
 
     // 3) Generation API.
