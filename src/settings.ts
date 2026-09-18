@@ -10,6 +10,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { normalizeColorName, type ColorName } from "./color.ts";
 import { normalizeIconMode, type IconMode } from "./icons.ts";
 
 /** Root key inside settings.json, matching the extension name. */
@@ -41,6 +42,10 @@ export interface ExtensionSettings {
   currency: CurrencyCode;
   /** Icon variant: auto (terminal heuristic), nerd, or ascii. */
   icons: IconMode;
+  /** Default text colour (ANSI) of the status item. */
+  color: ColorName;
+  /** Text colour used briefly after a serving-provider switch was detected. */
+  switchColor: ColorName;
   /**
    * Resolve the actual OpenRouter serving provider (routing constraint or
    * generation API). Generation results are cached per model.
@@ -57,6 +62,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   currency: "USD",
   icons: "auto",
+  color: "white",
+  switchColor: "yellow",
   lookupUpstreamProvider: true,
   providerCacheRefreshPrompts: 10,
 };
@@ -96,6 +103,8 @@ export async function loadSettings(): Promise<ExtensionSettings> {
     enabled: typeof section.enabled === "boolean" ? section.enabled : DEFAULT_SETTINGS.enabled,
     currency: normalizeCurrency(section.currency) ?? DEFAULT_SETTINGS.currency,
     icons: normalizeIconMode(section.icons) ?? DEFAULT_SETTINGS.icons,
+    color: normalizeColorName(section.color) ?? DEFAULT_SETTINGS.color,
+    switchColor: normalizeColorName(section.switchColor) ?? DEFAULT_SETTINGS.switchColor,
     lookupUpstreamProvider:
       typeof section.lookupUpstreamProvider === "boolean"
         ? section.lookupUpstreamProvider

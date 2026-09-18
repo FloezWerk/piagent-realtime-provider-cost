@@ -1,8 +1,9 @@
 /**
  * Icon set for the `realtime-provider-cost` extension.
  *
- * Mirrors the input/output icons of pi-powerline-footer, but is kept local so
- * the extension has no dependency on it.
+ * Input/output use plain arrows (`↑`/`↓`): they are rendered full size by every
+ * font, unlike Nerd Font private-use glyphs which are drawn noticeably smaller.
+ * The `ascii` mode keeps unambiguous text labels (`in:`/`out:`) instead.
  *
  * Icon selection (highest precedence first):
  *   1. env `PROVIDER_COST_NERD_FONTS=1|0`
@@ -18,15 +19,20 @@ export interface PriceIcons {
   output: string;
 }
 
-const NERD_ICONS: PriceIcons = {
-  input: "\uF090", // nf-fa-sign_in
-  output: "\uF08B", // nf-fa-sign_out
+/** Clear, full-size arrows - work in any font/terminal. */
+const ARROW_ICONS: PriceIcons = {
+  input: "\u2191", // ↑
+  output: "\u2193", // ↓
 };
 
 const ASCII_ICONS: PriceIcons = {
   input: "in:",
   output: "out:",
 };
+
+/** "update in progress" indicator shown while the provider is being resolved. */
+const PENDING_ICON = "\u27F3"; // ⟳
+const PENDING_ICON_ASCII = "...";
 
 /** Nerd Font detection: explicit env override first, then terminal heuristics. */
 export function hasNerdFonts(): boolean {
@@ -56,5 +62,10 @@ export function resolveIconMode(mode: IconMode): "nerd" | "ascii" {
 }
 
 export function getPriceIcons(mode: IconMode = "auto"): PriceIcons {
-  return resolveIconMode(mode) === "nerd" ? NERD_ICONS : ASCII_ICONS;
+  return resolveIconMode(mode) === "ascii" ? ASCII_ICONS : ARROW_ICONS;
+}
+
+/** Icon shown while the serving provider is still being resolved. */
+export function getPendingIcon(mode: IconMode = "auto"): string {
+  return resolveIconMode(mode) === "ascii" ? PENDING_ICON_ASCII : PENDING_ICON;
 }

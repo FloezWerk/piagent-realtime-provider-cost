@@ -27,6 +27,7 @@ import type {
   MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
+import { COLOR_NAMES, colorize, normalizeColorName } from "../src/color.ts";
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
@@ -63,6 +64,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   let snapshot: RateSnapshot | null = null;
   let cacheLoaded = false;
 
+  /**
+   * Set when a serving-provider switch was detected. The next render is drawn in
+   * `switchColor` (yellow by default) and every render after that again in the
+   * normal `color`, so the highlight is a one-shot hint.
+   */
+  let switchHighlight = false;
+
   /** requestModel -> in-flight generation lookup guard. */
   const lookupsInFlight = new Set<string>();
 
@@ -76,15 +84,25 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     await providerCache.load();
   }
 
-  /** Current status text, or null when the item should be hidden. */
+  /** Current status text (coloured), or null when the item should be hidden. */
   function currentText(): string | null {
     if (!settings.enabled || !snapshot || snapshot.subscription) return null;
-    return composeStatus(snapshot, settings.currency, getRate(settings.currency), settings.icons);
+
+    const text = composeStatus(snapshot, settings.currency, getRate(settings.currency), settings.icons);
+    return colorize(text, switchHighlight ? settings.switchColor : settings.color);
   }
 
   function render(ctx: ExtensionContext): void {
-    if (!ctx.hasUI) return;
-    ctx.ui.setStatus(STATUS_KEY, currentText() ?? undefined);
+    const text = currentText();
+    if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
+    // Consume the highlight: the next render is back to the normal colour.
+    switchHighlight = false;
+  }
+
+  /** True when the newly resolved provider differs from the previously known one. */
+  function providerChanged(model: string, provider: string): boolean {
+    const previous = providerCache.peek(model)?.provider;
+    return Boolean(previous) && previous !== provider;
   }
 
   function applyProvider(
@@ -97,6 +115,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
     target.upstreamProvider = provider;
     target.providerSource = source;
+    target.providerPending = false;
     render(ctx);
   }
 
@@ -115,7 +134,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       const model = registry(ctx)?.find("openrouter", target.requestModel);
       const routing = routingProviderFromModel(model);
       if (routing) {
+        const changed = providerChanged(target.requestModel, routing);
         providerCache.set(target.requestModel, routing, "routing");
+        if (changed) switchHighlight = true;
         applyProvider(ctx, target, routing, "routing");
         return;
       }
@@ -136,6 +157,10 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (!responseId || lookupsInFlight.has(key)) return;
     lookupsInFlight.add(key);
 
+    // Show an "update in progress" marker instead of hiding the provider info.
+    target.providerPending = true;
+    render(ctx);
+
     try {
       const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
       if (!apiKey) return;
@@ -143,12 +168,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       const name = await lookupOpenRouterProvider(responseId, { apiKey });
       if (!name) return;
 
+      if (providerChanged(key, name)) switchHighlight = true;
       providerCache.set(key, name, "generation");
       applyProvider(ctx, target, name, "generation");
     } catch {
       // Best-effort; without a provider the tag stays hidden.
     } finally {
       lookupsInFlight.delete(key);
+      if (target.providerPending) {
+        target.providerPending = false;
+        render(ctx);
+      }
     }
   }
 
@@ -183,7 +213,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   pi.registerCommand(COMMAND_NAME, {
     description: "Effektive Provider-Tokenpreise anzeigen/ein-/ausschalten",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
       const value = prefix.trimStart().toLowerCase();
 
@@ -199,6 +229,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         return ICON_MODES
           .filter((entry) => entry.startsWith(mode))
           .map((entry) => ({ value: `icons ${entry}`, label: entry }));
+      }
+
+      if (value.startsWith("color ") || value.startsWith("switchcolor ")) {
+        const name = value.split(/\s+/)[1] ?? "";
+        const head = value.startsWith("switchcolor") ? "switchColor" : "color";
+        return COLOR_NAMES
+          .filter((entry) => entry.startsWith(name))
+          .map((entry) => ({ value: `${head} ${entry}`, label: entry }));
       }
 
       if (value.startsWith("lookup ")) {
@@ -280,6 +318,23 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         ctx.ui.notify(`Icon-Modus auf ${mode} gesetzt.`, "info");
         return;
       }
+      case "color":
+      case "switchcolor": {
+        const name = normalizeColorName(rest[0]);
+        if (!name) {
+          ctx.ui.notify(
+            `Unbekannte Farbe "${rest[0] ?? ""}". Erlaubt: ${COLOR_NAMES.join(", ")}.`,
+            "warning",
+          );
+          return;
+        }
+        const isSwitch = action === "switchcolor";
+        settings = isSwitch ? { ...settings, switchColor: name } : { ...settings, color: name };
+        await saveSettings(isSwitch ? { switchColor: name } : { color: name });
+        render(ctx);
+        ctx.ui.notify(`${isSwitch ? "Wechselfarbe" : "Farbe"} auf ${name} gesetzt.`, "info");
+        return;
+      }
       case "lookup": {
         const mode = rest[0]?.toLowerCase();
         if (mode === "refresh") {
@@ -328,6 +383,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           : "cache:-";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
+          + ` · Farben: ${settings.color}/${settings.switchColor}`
           + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
           + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source}) · ${cacheInfo} · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
           "info",
@@ -349,6 +405,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   function commandUsage(): string {
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
-      + `|icons <${ICON_MODES.join("|")}>|lookup <on|off|refresh>`;
+      + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}>|switchColor <${COLOR_NAMES.join("|")}>`
+      + `|lookup <on|off|refresh>`;
   }
 }

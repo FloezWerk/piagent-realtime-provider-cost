@@ -64,6 +64,8 @@ export interface RateSnapshot {
   upstreamProvider: string | null;
   /** Origin of `upstreamProvider`, or null when unknown. */
   providerSource: ProviderSource | null;
+  /** OpenRouter provider is currently being resolved via the generation API. */
+  providerPending: boolean;
   /** Model is subscription-backed -> the whole status item is hidden. */
   subscription: boolean;
 }
@@ -153,6 +155,7 @@ export function snapshotFromMessage(
     responseId: typeof message.responseId === "string" && message.responseId ? message.responseId : null,
     upstreamProvider: null,
     providerSource: null,
+    providerPending: false,
     subscription: isSubscription(message.provider, requestModel, registry),
   };
 }

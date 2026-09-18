@@ -6,15 +6,20 @@ direkt neben der Session-Kostensumme.
 
 Format: `<in>/<out>` plus optionales Provider-Tag **hinten**. Das Tag zeigt den
 von OpenRouter gewählten **Serving-/Routing-Provider** (z. B. `Fir` → Fireworks)
-und erscheint **nur** bei OpenRouter und nur, wenn der Provider bekannt ist.
+und erscheint **nur** bei OpenRouter.
 
 ```
-󰜷$2/󰜺$12 (Fir)    # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out)
-in:$2/out:$12       # ASCII / oder Provider noch unbekannt
+↑$2/↓$12 (Fir)    # Pfeile (Unicode, volle Größe in jeder Font)
+in:$2/out:$12     # ASCII-Modus (icons: ascii)
+↑$2/↓$12 (⟳)      # Provider wird gerade per Generation-API ermittelt
 ```
 
-> Hinweis: Die Nerd-Font-Glyphen sind Private-Use-Codepoints (`U+F090`, `U+F08B`)
-> und werden nur mit passender Font korrekt dargestellt.
+> Die vorher genutzten Nerd-Font-Pfeile (`U+F090`/`U+F08B`) wurden durch `↑`/`↓`
+> ersetzt, weil Private-Use-Glyphen deutlich kleiner gerendert werden.
+
+**Farbe:** standardmäßig **weiß**; wird ein **Providerwechsel** erkannt (neu
+ermittelter Provider ≠ bisher bekannter Provider), wird der Wert **gelb**
+dargestellt – der nächste Render ist wieder weiß.
 
 Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
@@ -38,7 +43,8 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
   3. **Generation-API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
      – nur bei Cache-Miss/-Ablauf, max. 1 Call pro Model gleichzeitig. Die Daten
      sind erst einige Sekunden nach dem Call verfügbar → Retry mit Backoff
-     (1s/2s/4s/8s). Ergebnis wird gecacht.
+     (1s/2s/4s/8s). Ergebnis wird gecacht. Währenddessen wird statt des
+     Provider-Tags ein **„update in progress"-Icon** (`⟳`) angezeigt.
 
   Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel
   bei `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut
@@ -104,11 +110,15 @@ Explizite Positionierung neben `cost` via `powerline.layout`:
       "left": ["model", "thinking", "shell_mode", "path", "git", "queue", "context_pct", "cache_read", "cost", "custom:provider-cost"]
     },
     "customItems": [
-      { "id": "provider-cost", "statusKey": "realtime-provider-cost" }
+      { "id": "provider-cost", "statusKey": "realtime-provider-cost", "selfColorize": true }
     ]
   }
 }
 ```
+
+> **Wichtig:** `selfColorize: true` setzen, sonst entfernt Powerline die
+> ANSI-Farbcodes des Items und färbt selbst ein – die dynamische Weiß/Gelb-Umschaltung
+> ginge verloren.
 
 ## Installation
 
@@ -135,6 +145,8 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 | `/provider-cost refresh` | Wechselkurse neu laden |
 | `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
+| `/provider-cost color <name>` | Standardfarbe setzen (persistiert) |
+| `/provider-cost switchColor <name>` | Wechselfarbe (Providerwechsel) setzen (persistiert) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung; `refresh` leert den Provider-Cache und löst neu auf |
 
 ## Konfiguration
@@ -148,6 +160,8 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
     "enabled": true,
     "currency": "EUR",
     "icons": "nerd",
+    "color": "white",
+    "switchColor": "yellow",
     "lookupUpstreamProvider": true,
     "providerCacheRefreshPrompts": 10
   }
@@ -158,7 +172,9 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | --- | --- | --- |
 | `enabled` | `true` | Anzeige ein/aus |
 | `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
-| `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` |
+| `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
+| `color` | `"white"` | Standardfarbe: `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` |
+| `switchColor` | `"yellow"` | Farbe direkt nach erkanntem Providerwechsel |
 | `lookupUpstreamProvider` | `true` | Provider-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert (Routing-Einträge nie); `0` = immer neu auflösen |
 

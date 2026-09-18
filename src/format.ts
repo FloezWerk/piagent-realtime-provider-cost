@@ -3,7 +3,7 @@
  */
 
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
-import { getPriceIcons, type IconMode } from "./icons.ts";
+import { getPendingIcon, getPriceIcons, type IconMode } from "./icons.ts";
 import { upstreamTag, type RateSnapshot } from "./pricing.ts";
 
 /** Rounds to at most 4 decimals and trims trailing zeros for a compact look. */
@@ -30,10 +30,11 @@ export function formatPrice(amountUsd: number | null, currency: CurrencyCode, ra
 /**
  * Builds the status text. Values are per 1M tokens.
  *
- * Format: `<in-icon><in>/<out-icon><out>` plus an optional trailing
- * ` (<provider>)` tag, e.g. `<in>$2/<out>$12 (Fir)`.
- * The tag is only appended for OpenRouter once its serving provider is known;
- * otherwise it is omitted entirely.
+ * Format: `<in-icon><out-icon>` arrows plus an optional trailing
+ * ` (<provider>)` tag, e.g. `↑$2/↓$12 (Fir)`.
+ * The tag is only appended for OpenRouter. While the generation-API lookup is
+ * running, a "update in progress" icon is shown instead of hiding the tag;
+ * if the provider stays unknown, the tag is omitted entirely.
  */
 export function composeStatus(
   snapshot: RateSnapshot,
@@ -46,6 +47,6 @@ export function composeStatus(
   const output = formatPrice(snapshot.outputUsdPerMillion, currency, rate);
   const base = `${icons.input}${input}/${icons.output}${output}`;
 
-  const tag = upstreamTag(snapshot);
+  const tag = snapshot.providerPending ? getPendingIcon(iconMode) : upstreamTag(snapshot);
   return tag ? `${base} (${tag})` : base;
 }
