@@ -3,7 +3,7 @@
  */
 
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
-import { getPriceIcons } from "./icons.ts";
+import { getPriceIcons, type IconMode } from "./icons.ts";
 import type { RateSnapshot } from "./pricing.ts";
 
 /** Rounds to at most 4 decimals and trims trailing zeros for a compact look. */
@@ -28,17 +28,23 @@ export function formatPrice(amountUsd: number | null, currency: CurrencyCode, ra
 }
 
 /**
- * Builds the status text, e.g. `󰜷$2/󰜺$12` (Nerd) or `in:$2/out:$12` (ASCII).
- * Values are per 1M tokens.
+ * Builds the status text. Values are per 1M tokens.
+ *
+ * Format: `(<provider-prefix>)<in-icon><in>/<out-icon><out>`
+ * e.g. `(ope)<in>$2/<out>$12` (Nerd) or `(ope)in:$2/out:$12` (ASCII).
+ * The provider prefix is the first 3 chars of the provider id and makes it
+ * verifiable that the shown prices belong to the provider of the last call.
  */
 export function composeStatus(
   snapshot: RateSnapshot,
   currency: CurrencyCode,
   rate: number | null,
+  iconMode: IconMode = "auto",
 ): string {
-  const icons = getPriceIcons();
+  const icons = getPriceIcons(iconMode);
   const input = formatPrice(snapshot.inputUsdPerMillion, currency, rate);
   const output = formatPrice(snapshot.outputUsdPerMillion, currency, rate);
+  const provider = snapshot.provider.slice(0, 3);
 
-  return `${icons.input}${input}/${icons.output}${output}`;
+  return `(${provider})${icons.input}${input}/${icons.output}${output}`;
 }

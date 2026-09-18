@@ -10,6 +10,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { normalizeIconMode, type IconMode } from "./icons.ts";
+
 /** Root key inside settings.json, matching the extension name. */
 export const SETTINGS_ROOT_KEY = "realtime-provider-cost";
 
@@ -37,11 +39,14 @@ export interface ExtensionSettings {
   enabled: boolean;
   /** Display currency (converted from USD like pi-powerline-footer). */
   currency: CurrencyCode;
+  /** Icon variant: auto (terminal heuristic), nerd, or ascii. */
+  icons: IconMode;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   currency: "USD",
+  icons: "auto",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,6 +83,7 @@ export async function loadSettings(): Promise<ExtensionSettings> {
   return {
     enabled: typeof section.enabled === "boolean" ? section.enabled : DEFAULT_SETTINGS.enabled,
     currency: normalizeCurrency(section.currency) ?? DEFAULT_SETTINGS.currency,
+    icons: normalizeIconMode(section.icons) ?? DEFAULT_SETTINGS.icons,
   };
 }
 

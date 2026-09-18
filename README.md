@@ -4,10 +4,16 @@ Pi-Extension, die in der Statusleiste die **effektiven Tokenpreise (Input/Output
 pro 1 Mio. Tokens)** des Providers/Modells des **letzten API-Calls** anzeigt –
 direkt neben der Session-Kostensumme.
 
+Format: `(<provider>)<in>/<out>` – der Provider-Prefix sind die ersten 3 Zeichen
+der Provider-ID, damit nachvollziehbar ist, von welchem Provider die Preise stammen.
+
 ```
-󰜷$2/󰜺$12        # Nerd Font: nf-fa-sign_in / nf-fa-sign_out
-in:$2/out:$12    # ASCII-Fallback
+(ope)󰜷$2/󰜺$12     # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out)
+(ope)in:$2/out:$12  # ASCII-Fallback
 ```
+
+> Hinweis: Die Nerd-Font-Glyphen sind Private-Use-Codepoints (`U+F090`, `U+F08B`)
+> und werden nur mit passender Font korrekt dargestellt.
 
 Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
@@ -20,8 +26,9 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
   Preis(USD/Mtok) = usage.cost.<bucket> / usage.<bucket> * 1e6
   ```
 
-  Dadurch sind Preistiers, Service-Tier-Multiplikatoren und providerabhängige
-  Tarife automatisch korrekt enthalten.
+  Dadurch sind Preistiers, Service-Tier-Multiplikatoren, providerabhängige Tarife
+  und OpenRouter-Routing automatisch enthalten. Der angezeigte Provider-Prefix
+  (z. B. `(ope)`) macht das überprüfbar.
 - **Nur Input/Output** (kein Cache-Read/Write).
 - **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert
   wird erst bei `message_end` (abgeschlossener API-Call).
@@ -100,12 +107,13 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 
 | Befehl | Wirkung |
 | --- | --- |
-| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, aktuelle Anzeige, letztes Modell |
+| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icon-Modus, aktuelle Anzeige, letztes Modell |
 | `/provider-cost on` | Anzeige einschalten (persistiert) |
 | `/provider-cost off` | Anzeige ausschalten (persistiert) |
 | `/provider-cost toggle` | Umschalten (persistiert) |
 | `/provider-cost refresh` | Wechselkurse neu laden |
 | `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
+| `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
 
 Unbekannte Optionen werden mit einem Hinweis quittiert.
 
@@ -118,7 +126,8 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 {
   "realtime-provider-cost": {
     "enabled": true,
-    "currency": "EUR"
+    "currency": "EUR",
+    "icons": "nerd"
   }
 }
 ```
@@ -127,16 +136,20 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | --- | --- | --- |
 | `enabled` | `true` | Anzeige ein/aus (per Slash-Command änderbar) |
 | `currency` | `"USD"` | Eine von: `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
+| `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` |
 
-### Umgebungsvariablen
+### Icons
 
-| Variable | Wirkung |
-| --- | --- |
-| `PROVIDER_COST_NERD_FONTS=1` | Nerd-Font-Icons erzwingen |
-| `PROVIDER_COST_NERD_FONTS=0` | ASCII-Icons erzwingen (`in:`/`out:`) |
+Icon-Auswahl in dieser Reihenfolge (höchste Priorität zuerst):
 
-Ohne Override wird – wie in Powerline – anhand von `GHOSTTY_RESOURCES_DIR` bzw.
-`TERM_PROGRAM`/`TERM` (iterm, wezterm, kitty, ghostty, alacritty, kaku) erkannt.
+1. Env `PROVIDER_COST_NERD_FONTS=1` (nerd) bzw. `=0` (ascii)
+2. Config `icons`: `nerd` / `ascii`
+3. `auto`: Heuristik wie Powerline (`GHOSTTY_RESOURCES_DIR` bzw.
+   `TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku)
+
+Achtung: Viele Terminals setzen nur `TERM=xterm-256color` (z. B. VS Code
+Integrated Terminal). Dann liefert `auto` ASCII (`in:`/`out:`) – für echte Icons
+`icons: "nerd"` setzen oder `/provider-cost icons nerd`.
 
 ### Rundung
 

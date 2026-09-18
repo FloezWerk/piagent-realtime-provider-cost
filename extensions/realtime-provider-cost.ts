@@ -24,6 +24,7 @@ import type {
 
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus } from "../src/format.ts";
+import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
 import {
   snapshotFromBranch,
   snapshotFromMessage,
@@ -53,7 +54,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   /** Current status text, or null when the item should be hidden. */
   function currentText(): string | null {
     if (!settings.enabled || !snapshot || snapshot.subscription) return null;
-    return composeStatus(snapshot, settings.currency, getRate(settings.currency));
+    return composeStatus(snapshot, settings.currency, getRate(settings.currency), settings.icons);
   }
 
   function render(ctx: ExtensionContext): void {
@@ -83,21 +84,26 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   pi.registerCommand(COMMAND_NAME, {
     description: "Effektive Provider-Tokenpreise anzeigen/ein-/ausschalten",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons"];
       const value = prefix.trim().toLowerCase();
-      const matches = options.filter((option) => option.startsWith(value)).map((option) => ({
-        value: option,
-        label: option,
-      }));
 
-      if (value === "currency" || value.startsWith("currency ")) {
-        const code = value.includes(" ") ? value.split(/\s+/)[1] ?? "" : "";
+      if (value.startsWith("currency ")) {
+        const code = value.split(/\s+/)[1] ?? "";
         return SUPPORTED_CURRENCIES
           .filter((currency) => currency.toLowerCase().startsWith(code))
           .map((currency) => ({ value: `currency ${currency}`, label: currency }));
       }
 
-      return matches;
+      if (value.startsWith("icons ")) {
+        const mode = value.split(/\s+/)[1] ?? "";
+        return ICON_MODES
+          .filter((entry) => entry.startsWith(mode))
+          .map((entry) => ({ value: `icons ${entry}`, label: entry }));
+      }
+
+      return options
+        .filter((option) => option.startsWith(value))
+        .map((option) => ({ value: option, label: option }));
     },
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       await handleCommand(args, ctx);
@@ -152,6 +158,21 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         ctx.ui.notify(`Währung auf ${code} gesetzt.`, "info");
         return;
       }
+      case "icons": {
+        const mode = normalizeIconMode(rest[0]);
+        if (!mode) {
+          ctx.ui.notify(
+            `Unbekannter Icon-Modus "${rest[0] ?? ""}". Erlaubt: ${ICON_MODES.join(", ")}.`,
+            "warning",
+          );
+          return;
+        }
+        settings = { ...settings, icons: mode };
+        await saveSettings({ icons: mode });
+        render(ctx);
+        ctx.ui.notify(`Icon-Modus auf ${mode} gesetzt.`, "info");
+        return;
+      }
       case "status":
       default: {
         if (action !== "status") {
@@ -164,7 +185,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           ? `${snapshot.provider}/${snapshot.model}${snapshot.subscription ? " (subscription)" : ""}`
           : "noch kein API-Call";
         ctx.ui.notify(
-          `Provider-Preise: ${state} · Währung: ${settings.currency} · Anzeige: ${text ?? "-"} · Modell: ${active}`,
+          `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons} · Anzeige: ${text ?? "-"} · Modell: ${active}`,
           "info",
         );
         return;
@@ -183,6 +204,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   }
 
   function commandUsage(): string {
-    return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`;
+    return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>|icons <${ICON_MODES.join("|")}>`;
   }
 }
