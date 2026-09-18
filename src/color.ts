@@ -10,6 +10,8 @@
  *   - hex:            #ffd700, #fd0        (truecolor)
  *   - 256-colour:     226                  (0-255)
  *   - `bold:` prefix: bold:yellow, bold:#ffd700, bold:226
+ *   - `reverse:` prefix: reverse:red       (colour becomes the background)
+ *   - combinable:     bold:reverse:red
  *
  * When used inside pi-powerline-footer, the custom item needs
  * `"selfColorize": true` so Powerline keeps these escape codes instead of
@@ -65,34 +67,58 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
-function withBold(sgr: string, bold: boolean): ResolvedColor {
-  return { sgr: bold ? `1;${sgr}` : sgr, none: false };
+/** Attribute prefixes parsed from a colour spec, e.g. `bold:reverse:red`. */
+interface ColorAttrs {
+  bold: boolean;
+  reverse: boolean;
+}
+
+const ATTR_PREFIX = /^(bold|reverse):(.*)$/i;
+
+/** Strips all leading `bold:`/`reverse:` prefixes; null when only prefixes remain. */
+function splitAttrs(spec: string): { attrs: ColorAttrs; body: string } | null {
+  const attrs: ColorAttrs = { bold: false, reverse: false };
+  let rest = spec.trim();
+
+  for (;;) {
+    const match = ATTR_PREFIX.exec(rest);
+    if (!match) break;
+    if (match[1].toLowerCase() === "bold") attrs.bold = true;
+    else attrs.reverse = true;
+    rest = match[2].trim();
+  }
+
+  return rest ? { attrs, body: rest } : null;
+}
+
+/** SGR parameter list for the parsed attributes, e.g. `1;7`. */
+function attrSgr(attrs: ColorAttrs): string {
+  return [attrs.bold ? "1" : "", attrs.reverse ? "7" : ""].filter(Boolean).join(";");
+}
+
+function withAttrs(sgr: string, attrs: ColorAttrs): ResolvedColor {
+  const prefix = attrSgr(attrs);
+  return { sgr: prefix ? `${prefix};${sgr}` : sgr, none: false };
 }
 
 /** Parses a colour spec; null when invalid. */
 export function resolveColorSpec(spec: string): ResolvedColor | null {
-  let rest = spec.trim();
-  if (!rest) return null;
+  const parsed = splitAttrs(spec);
+  if (!parsed) return null;
 
-  const boldMatch = /^bold:(.*)$/i.exec(rest);
-  const bold = Boolean(boldMatch);
-  if (boldMatch) {
-    rest = boldMatch[1].trim();
-    if (!rest) return null;
-  }
-
-  const lower = rest.toLowerCase();
-  if (lower === "none") return bold ? null : { sgr: "", none: true };
+  const { attrs, body } = parsed;
+  const lower = body.toLowerCase();
+  if (lower === "none") return attrSgr(attrs) ? null : { sgr: "", none: true };
 
   const name = SGR[lower as Exclude<ColorName, "none">];
-  if (typeof name === "string") return withBold(name, bold);
+  if (typeof name === "string") return withAttrs(name, attrs);
 
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(rest);
-  if (hex) return withBold(`38;2;${hexToRgb(hex[1]).join(";")}`, bold);
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(body);
+  if (hex) return withAttrs(`38;2;${hexToRgb(hex[1]).join(";")}`, attrs);
 
-  if (/^\d{1,3}$/.test(rest)) {
-    const code = Number(rest);
-    if (code >= 0 && code <= 255) return withBold(`38;5;${code}`, bold);
+  if (/^\d{1,3}$/.test(body)) {
+    const code = Number(body);
+    if (code >= 0 && code <= 255) return withAttrs(`38;5;${code}`, attrs);
   }
 
   return null;
@@ -101,18 +127,20 @@ export function resolveColorSpec(spec: string): ResolvedColor | null {
 /** Validates and canonicalises a colour spec for persistence in settings. */
 export function normalizeColorSpec(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
+  if (!resolveColorSpec(value.trim())) return undefined;
 
-  const spec = value.trim();
-  if (!resolveColorSpec(spec)) return undefined;
+  const parsed = splitAttrs(value.trim());
+  if (!parsed) return undefined;
 
-  const boldMatch = /^bold:(.*)$/i.exec(spec);
-  const bold = boldMatch ? "bold:" : "";
-  let body = (boldMatch ? boldMatch[1] : spec).trim();
+  const prefixes: string[] = [];
+  if (parsed.attrs.bold) prefixes.push("bold");
+  if (parsed.attrs.reverse) prefixes.push("reverse");
 
+  let body = parsed.body;
   if ((COLOR_NAMES as readonly string[]).includes(body.toLowerCase())) body = body.toLowerCase();
   else if (/^\d{1,3}$/.test(body)) body = String(Number(body));
 
-  return `${bold}${body}`;
+  return [...prefixes, body].join(":");
 }
 
 /** Wraps `text` in the SGR colour; `none` returns the text untouched. */

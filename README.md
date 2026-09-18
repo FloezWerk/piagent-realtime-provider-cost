@@ -125,6 +125,19 @@ zeigt die Abweichung. Icons und Provider-Tag bleiben in der Standardfarbe.
    > Liegt kein effektiver Preis oder kein Katalogpreis vor (z. B. `?`), bleibt
    > die Standardfarbe.
 
+   **Lesbarkeit auf dunklem Hintergrund.** Eine echte Outline/Stroke um die
+   Schrift kann das Terminal nicht zeichnen (reines Font-Rendering). Stattdessen
+   steuert `deviationStyle`, wie die Abweichungsfarbe angewendet wird:
+
+   | `deviationStyle` | Wirkung |
+   | --- | --- |
+   | `reverse` (Default) | Zahl als farbiger Block (`SGR 7`): Farbe wird Hintergrund, Text bekommt die Terminal-Hintergrundfarbe → bester Kontrast, auch bei Rot |
+   | `bold` | nur fetter/heller (`SGR 1`), Hintergrund bleibt |
+   | `plain` | reine Vordergrundfarbe wie zuvor |
+
+   Setzbar per `/provider-cost style <plain|bold|reverse>` oder Setting
+   `deviationStyle`. Beispiel mit Reverse: `↑\e[7;92m$2\e[0m/↓\e[7;91m$12\e[0m`.
+
 2. **Standard-/Wechselfarbe** für alles Übrige. Standardmäßig **weiß**; bei
 erkanntem **Providerwechsel** wird der **gesamte** Eintrag für einen Prompt
 **fett gold** (`bold:#ffd700`) und überschreibt dabei die Abweichungsfarben.
@@ -139,6 +152,8 @@ Farbangaben sind frei wählbar:
 | Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
 | 256-Farben | `226` (0-255) | `38;5;n` |
 | Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
+| Invertiert | `reverse:red`, `reverse:orange` | `7;<farbe>` (Farbe als Hintergrund) |
+| Kombiniert | `bold:reverse:red` | `1;7;<farbe>` |
 
 Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …) aus
 der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit sie
@@ -167,6 +182,7 @@ Gängige Alternativen für den Wechsel-Highlight:
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
 | `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert, s. [Farben](#farben)) |
 | `/provider-cost switchColor <spec>` | Wechselfarbe (Providerwechsel) setzen (persistiert, s. [Farben](#farben)) |
+| `/provider-cost style <plain\|bold\|reverse>` | Attribute der Abweichungsfarben für In/Out (persistiert; Default `reverse`) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung ein/aus; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
 
 ## Konfiguration
@@ -183,6 +199,7 @@ Befehl setzbar.
     "icons": "nerd",
     "color": "white",
     "switchColor": "bold:#ffd700",
+    "deviationStyle": "reverse",
     "lookupUpstreamProvider": true,
     "providerCacheRefreshPrompts": 10
   }
@@ -196,6 +213,7 @@ Befehl setzbar.
 | `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
 | `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
 | `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
+| `deviationStyle` | `"reverse"` | SGR-Attribute der Abweichungsfarben: `reverse` (farbiger Block, bester Kontrast), `bold`, `plain` |
 | `lookupUpstreamProvider` | `true` | Provider/Kosten-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert; `0` = immer neu auflösen |
 

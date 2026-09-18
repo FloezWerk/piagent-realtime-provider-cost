@@ -48,11 +48,14 @@ import { providerCache } from "../src/provider-cache.ts";
 import { deriveRealRates } from "../src/rates.ts";
 import {
   DEFAULT_SETTINGS,
+  DEVIATION_STYLES,
   STATUS_KEY,
   SUPPORTED_CURRENCIES,
   loadSettings,
   normalizeCurrency,
+  normalizeDeviationStyle,
   saveSettings,
+  type DeviationStyle,
   type ExtensionSettings,
 } from "../src/settings.ts";
 import { lookupOpenRouterGeneration } from "../src/upstream.ts";
@@ -112,10 +115,20 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     // Deviation of the effective price from the catalogue price -> colour per number.
     const colors: PriceColors = {
       base: settings.color,
-      input: deviationColorSpec(snapshot.inputUsdPerMillion, snapshot.catalogueInputUsdPerMillion),
-      output: deviationColorSpec(snapshot.outputUsdPerMillion, snapshot.catalogueOutputUsdPerMillion),
+      input: styleDeviation(
+        deviationColorSpec(snapshot.inputUsdPerMillion, snapshot.catalogueInputUsdPerMillion),
+      ),
+      output: styleDeviation(
+        deviationColorSpec(snapshot.outputUsdPerMillion, snapshot.catalogueOutputUsdPerMillion),
+      ),
     };
     return composeStatus(snapshot, settings.currency, rate, icons, colors);
+  }
+
+  /** Applies the configured SGR style (`bold`/`reverse`) to a deviation colour. */
+  function styleDeviation(spec: string | null): string | null {
+    if (!spec || settings.deviationStyle === "plain") return spec;
+    return `${settings.deviationStyle}:${spec}`;
   }
 
   function render(ctx: ExtensionContext): void {
@@ -327,7 +340,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   pi.registerCommand(COMMAND_NAME, {
     description: "Effektive Provider-Tokenpreise anzeigen/ein-/ausschalten",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
       const value = prefix.trimStart().toLowerCase();
 
@@ -348,10 +361,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       if (value.startsWith("color ") || value.startsWith("switchcolor ")) {
         const name = value.split(/\s+/)[1] ?? "";
         const head = value.startsWith("switchcolor") ? "switchColor" : "color";
-        const presets = [...COLOR_NAMES, "bold:yellow", "bold:white"];
+        const presets = [...COLOR_NAMES, "bold:yellow", "bold:white", "reverse:red", "reverse:orange"];
         return presets
           .filter((entry) => entry.startsWith(name))
           .map((entry) => ({ value: `${head} ${entry}`, label: entry }));
+      }
+
+      if (value.startsWith("style ")) {
+        const mode = value.split(/\s+/)[1] ?? "";
+        return DEVIATION_STYLES
+          .filter((entry) => entry.startsWith(mode))
+          .map((entry) => ({ value: `style ${entry}`, label: entry }));
       }
 
       if (value.startsWith("lookup ")) {
@@ -431,6 +451,21 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         ctx.ui.notify(`Währung auf ${code} gesetzt.`, "info");
         return;
       }
+      case "style": {
+        const mode: DeviationStyle | undefined = normalizeDeviationStyle(rest[0]);
+        if (!mode) {
+          ctx.ui.notify(
+            `Unbekannter Style "${rest[0] ?? ""}". Erlaubt: ${DEVIATION_STYLES.join(", ")}.`,
+            "warning",
+          );
+          return;
+        }
+        settings = { ...settings, deviationStyle: mode };
+        await saveSettings({ deviationStyle: mode });
+        render(ctx);
+        ctx.ui.notify(`Abweichungs-Style auf ${mode} gesetzt.`, "info");
+        return;
+      }
       case "icons": {
         const mode = normalizeIconMode(rest[0]);
         if (!mode) {
@@ -452,7 +487,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         if (!name) {
           ctx.ui.notify(
             `Unbekannte Farbe "${rest[0] ?? ""}". Erlaubt: ${COLOR_NAMES.join(", ")}, `
-              + `Hex (#ffd700), 256-Code (226) und "bold:..." (bold:yellow).`,
+              + `Hex (#ffd700), 256-Code (226) sowie "bold:..."/"reverse:..." (bold:yellow, reverse:red).`,
             "warning",
           );
           return;
@@ -514,7 +549,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           : "cache:-";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
-          + ` · Farben: ${settings.color}/${settings.switchColor}`
+          + ` · Farben: ${settings.color}/${settings.switchColor} (Abweichung: ${settings.deviationStyle})`
           + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
           + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source})`
           + ` · Preise: ${snapshot?.cataloguePreview ? "katalog (Vorschau)" : snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
@@ -538,7 +573,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   function commandUsage(): string {
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
-      + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...>`
-      + `|switchColor <...>|lookup <on|off|refresh>`;
+      + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...|reverse:...>`
+      + `|switchColor <...>|style <${DEVIATION_STYLES.join("|")}>|lookup <on|off|refresh>`;
   }
 }

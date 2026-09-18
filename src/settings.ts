@@ -13,6 +13,14 @@ import { join } from "node:path";
 import { normalizeColorSpec } from "./color.ts";
 import { normalizeIconMode, type IconMode } from "./icons.ts";
 
+/**
+ * SGR attributes applied to the deviation colours: `reverse` renders the number
+ * as a coloured block (best contrast on dark backgrounds), `bold` only makes it
+ * brighter/heavier, `plain` leaves the colour untouched.
+ */
+export const DEVIATION_STYLES = ["plain", "bold", "reverse"] as const;
+export type DeviationStyle = (typeof DEVIATION_STYLES)[number];
+
 /** Root key inside settings.json, matching the extension name. */
 export const SETTINGS_ROOT_KEY = "realtime-provider-cost";
 
@@ -56,6 +64,8 @@ export interface ExtensionSettings {
    * refreshed (routing entries never expire). 0 = always refresh.
    */
   providerCacheRefreshPrompts: number;
+  /** SGR attributes for the catalogue-deviation colours (input/output numbers). */
+  deviationStyle: DeviationStyle;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -67,7 +77,17 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   switchColor: "bold:#ffd700",
   lookupUpstreamProvider: true,
   providerCacheRefreshPrompts: 10,
+  // Reverse video makes the coloured numbers readable on dark backgrounds.
+  deviationStyle: "reverse",
 };
+
+export function normalizeDeviationStyle(value: unknown): DeviationStyle | undefined {
+  if (typeof value !== "string") return undefined;
+  const style = value.trim().toLowerCase();
+  return (DEVIATION_STYLES as readonly string[]).includes(style)
+    ? (style as DeviationStyle)
+    : undefined;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -116,6 +136,8 @@ export async function loadSettings(): Promise<ExtensionSettings> {
       section.providerCacheRefreshPrompts >= 0
         ? Math.floor(section.providerCacheRefreshPrompts)
         : DEFAULT_SETTINGS.providerCacheRefreshPrompts,
+    deviationStyle:
+      normalizeDeviationStyle(section.deviationStyle) ?? DEFAULT_SETTINGS.deviationStyle,
   };
 }
 
