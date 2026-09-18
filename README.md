@@ -1,42 +1,42 @@
 # piagent-realtime-provider-cost
 
-Zeigt in der Pi-Statusleiste die **effektiven Tokenpreise (Input/Output, pro 1 Mio.
-Tokens)** des **letzten API-Calls** an – direkt neben der Session-Kostensumme.
+Shows the **effective token prices (input/output, per 1M tokens)** of the
+**last API call** in the Pi status bar – right next to the session cost sum.
 
-Im Unterschied zur Kostensumme des Core-Footers sind das die **tatsächlich von
-OpenRouter abgerechneten** Sätze (inkl. Provider-Routing, Discounts und
-Peak-Overrides), nicht die Katalogpreise aus `models-store.json`. Bei
-OpenRouter-Modellen steht zusätzlich der **bedienende Provider** als Tag hinten dran.
+Unlike the core footer's cost sum, these are the rates **actually billed by
+OpenRouter** (including provider routing, discounts and peak overrides), not the
+catalogue prices from `models-store.json`. For OpenRouter models the **serving
+provider** is appended as a tag.
 
 ```
-↑$2/↓$12 (Fir)    # Pfeile (Unicode, volle Größe in jeder Font), Tag = Fireworks
-in:$2/out:$12     # ASCII-Modus (icons: ascii)
-↑$2/↓$12 (⟳)      # Provider/Kosten werden gerade per Generation-API ermittelt
-↑$1.5/↓$6 (?)     # Modell gerade gewechselt: Katalogpreise, Provider noch unbekannt
+↑$2/↓$12 (Fir)    # arrows (Unicode, full size in every font), tag = Fireworks
+in:$2/out:$12     # ASCII mode (icons: ascii)
+↑$2/↓$12 (⟳)      # provider/costs are currently resolved via the generation API
+↑$1.5/↓$6 (?)     # model just switched: catalogue prices, provider not known yet
 ```
 
-**Farbe:** die In-/Out-**Icons** sind **farblich nach der Abweichung zum
-Katalogpreis** eingefärbt (grün/gelb/orange/rot, s. [Farben](#farben)); Zahlen
-und Provider-Tag bleiben in der Standardfarbe (**weiß**). Bei erkanntem
-**Providerwechsel** wird der **ganze** Eintrag für einen Prompt **fett gold**
-(`bold:#ffd700`) – die Abweichungsfarben gelten dann nicht.
+**Colour:** the in/out **icons** are **coloured by their deviation from the
+catalogue price** (green/yellow/orange/red, see [Colours](#colours)); the numbers
+and the provider tag stay in the base colour (**white**). When a **provider
+switch** is detected, the **whole** item is drawn **bold gold** (`bold:#ffd700`)
+for one prompt – the deviation colours do not apply then.
 
-Alle Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
+All values are **per 1M tokens** in the configured currency.
 
-## Inhalt
+## Contents
 
 - [Installation](#installation)
-- [Einrichtung](#einrichtung)
-  - [Ohne pi-powerline-footer](#ohne-pi-powerline-footer)
-  - [Mit pi-powerline-footer (empfohlen)](#mit-pi-powerline-footer-empfohlen)
-- [Farben](#farben)
-- [Befehle](#befehle)
-- [Konfiguration](#konfiguration)
+- [Setup](#setup)
+  - [Without pi-powerline-footer](#without-pi-powerline-footer)
+  - [With pi-powerline-footer (recommended)](#with-pi-powerline-footer-recommended)
+- [Colours](#colours)
+- [Commands](#commands)
+- [Configuration](#configuration)
   - [Icons](#icons)
-  - [Rundung](#rundung)
-- [Funktionsweise](#funktionsweise)
-- [Hintergrund: warum der Umweg über die Generation-API?](#hintergrund-warum-der-umweg-über-die-generation-api)
-- [Abhängigkeiten](#abhängigkeiten)
+  - [Rounding](#rounding)
+- [How it works](#how-it-works)
+- [Background: why the generation API detour?](#background-why-the-generation-api-detour)
+- [Dependencies](#dependencies)
 
 ## Installation
 
@@ -44,28 +44,29 @@ Alle Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 pi install ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git
 ```
 
-Lokal/Entwicklung:
+Local/development:
 
 ```bash
 pi -e ./extensions/realtime-provider-cost.ts
 ```
 
-Nach Änderungen in einer laufenden Session: `/reload`.
+After changes in a running session: `/reload`.
 
-Danach ist die Extension sofort aktiv – **ohne weitere Konfiguration** erscheint
-der Wert im Footer neben der Kostensumme. Wenn du die Powerline-Leiste benutzt,
-sollte das Element zusätzlich dort eingehängt werden (nächster Abschnitt).
+Afterwards the extension is active immediately – **without further
+configuration** the value appears in the footer next to the cost sum. If you use
+the Powerline bar, the item should additionally be hooked in there (next
+section).
 
-## Einrichtung
+## Setup
 
-### Ohne pi-powerline-footer
+### Without pi-powerline-footer
 
-Funktioniert eigenständig: `ctx.ui.setStatus` ist eine Core-API, der Core-Footer
-zeigt den Wert als eigene Zeile unter der Statuszeile.
+Works standalone: `ctx.ui.setStatus` is a core API, the core footer shows the
+value as its own line below the status line.
 
-### Mit pi-powerline-footer (empfohlen)
+### With pi-powerline-footer (recommended)
 
-Ein Custom-Item ergänzen, das den Statuskanal `realtime-provider-cost` liest:
+Add a custom item that reads the `realtime-provider-cost` status channel:
 
 ```jsonc
 {
@@ -86,7 +87,7 @@ Ein Custom-Item ergänzen, das den Statuskanal `realtime-provider-cost` liest:
 }
 ```
 
-Explizite Positionierung direkt neben `cost` via `powerline.layout`:
+Explicit positioning right next to `cost` via `powerline.layout`:
 
 ```jsonc
 {
@@ -101,105 +102,104 @@ Explizite Positionierung direkt neben `cost` via `powerline.layout`:
 }
 ```
 
-> **Wichtig:** `selfColorize: true` setzen. Sonst entfernt Powerline die
-> ANSI-Farbcodes des Items und färbt selbst ein – die dynamische
-> Weiß/Gold-Umschaltung beim Providerwechsel ginge verloren.
+> **Important:** set `selfColorize: true`. Otherwise Powerline strips the item's
+> ANSI colour codes and colours it itself – the dynamic white/gold switch on a
+> provider change would be lost.
 
-## Farben
+## Colours
 
-Es gibt zwei Ebenen:
+There are two layers:
 
-1. **Abweichungs-Farbcodierung.** Die effektive Rate wird mit dem
-**Katalogpreis** (`models-store.json`) des Modells verglichen; die Farbe zeigt
-die Abweichung. Eingefärbt werden die **Icons/Pfeile** (In und Out getrennt);
-die Zahlen selbst bleiben in der Standardfarbe, damit sie auf dunklem
-Hintergrund gut lesbar sind. Provider-Tag ebenfalls in der Standardfarbe.
+1. **Deviation colour coding.** The effective rate is compared with the model's
+**catalogue price** (`models-store.json`); the colour shows the deviation. What
+gets coloured are the **icons/arrows** (in and out separately); the numbers
+themselves stay in the base colour so they remain readable on dark backgrounds.
+The provider tag is also in the base colour.
 
-   Schwellen sind konfigurierbar (Settings `deviationThresholds`, Befehl
-   `/provider-cost threshold …`); die Prozentwerte unten sind die Defaults:
+   Thresholds are configurable (setting `deviationThresholds`, command
+   `/provider-cost threshold …`); the percentages below are the defaults:
 
-   | Abweichung zum Katalogpreis | Farbe |
+   | Deviation from catalogue price | Colour |
    | --- | --- |
-   | mehr als `green` % **billiger** (< −10 %) | **grün** |
-   | bis `yellow` % teurer (0 % < x ≤ 10 %) | **gelb** |
-   | `yellow`–`orange` % teurer (> 10 % und ≤ 20 %) | **orange** (256-Farbe 208) |
-   | mehr als `orange` % teurer (> 20 %) | **rot** |
-   | sonst (0 % bzw. ≤ `green` % billiger, oder kein Katalogpreis bekannt) | Standardfarbe |
+   | more than `green` % **cheaper** (< −10 %) | **green** |
+   | up to `yellow` % more expensive (0 % < x ≤ 10 %) | **yellow** |
+   | `yellow`–`orange` % more expensive (> 10 % and ≤ 20 %) | **orange** (256-colour 208) |
+   | more than `orange` % more expensive (> 20 %) | **red** |
+   | otherwise (0 %, up to `green` % cheaper, or no catalogue price known) | base colour |
 
-   > In und Out werden **einzeln** gefärbt (z. B. Input-Pfeil grün, Output-Pfeil
-   > rot). Liegt kein effektiver Preis oder kein Katalogpreis vor (z. B. `?`),
-   > bleibt die Standardfarbe.
+   > In and out are coloured **individually** (e.g. input arrow green, output
+   > arrow red). If there is no effective price or no catalogue price (e.g. `?`),
+   > the base colour stays.
 
-   Beispiel: `↑`grün `$2` / `↓`rot `$12` (Zahlen weiß).
+   Example: `↑`green `$2` / `↓`red `$12` (numbers white).
 
-   **Lesbarkeit.** Eine Outline/Stroke um die Schrift kann das Terminal nicht
-   zeichnen (reines Font-Rendering). Darum trägt das **Icon** die Abweichungsfarbe
-   und die Zahl bleibt neutral. `deviationStyle` steuert die SGR-Attribute des
-   Icons:
+   **Readability.** A terminal cannot draw an outline/stroke around glyphs (pure
+   font rendering). Therefore the **icon** carries the deviation colour and the
+   number stays neutral. `deviationStyle` controls the icon's SGR attributes:
 
-   | `deviationStyle` | Wirkung |
+   | `deviationStyle` | Effect |
    | --- | --- |
-   | `plain` (Default) | reine Vordergrundfarbe am Pfeil |
-   | `bold` | Pfeil fetter/heller (`SGR 1`) |
-   | `reverse` | Pfeil als farbiger Block (`SGR 7`) |
+   | `plain` (default) | plain foreground colour on the arrow |
+   | `bold` | arrow bolder/brighter (`SGR 1`) |
+   | `reverse` | arrow as a coloured block (`SGR 7`) |
 
-   Setzbar per `/provider-cost style <plain|bold|reverse>` oder Setting
+   Set via `/provider-cost style <plain|bold|reverse>` or setting
    `deviationStyle`.
 
-2. **Standard-/Wechselfarbe** für alles Übrige. Standardmäßig **weiß**; bei
-erkanntem **Providerwechsel** wird der **gesamte** Eintrag für einen Prompt
-**fett gold** (`bold:#ffd700`) und überschreibt dabei die Abweichungsfarben.
-Setzbar über `/provider-cost color …` bzw. `/provider-cost switchColor …` oder die
-Settings `color` / `switchColor`.
+2. **Base/switch colour** for everything else. **White** by default; when a
+**provider switch** is detected the **whole** item is drawn **bold gold**
+(`bold:#ffd700`) for one prompt and overrides the deviation colours. Set via
+`/provider-cost color …` / `/provider-cost switchColor …` or the settings
+`color` / `switchColor`.
 
-Farbangaben sind frei wählbar:
+Colour specs are freely choosable:
 
-| Syntax | Beispiel | Ergebnis |
+| Syntax | Example | Result |
 | --- | --- | --- |
 | Palette | `white`, `yellow`, `orange`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/38;5;208/91/92/96/95/94/90 |
 | Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
-| 256-Farben | `226` (0-255) | `38;5;n` |
-| Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
-| Invertiert | `reverse:red`, `reverse:orange` | `7;<farbe>` (Farbe als Hintergrund) |
-| Kombiniert | `bold:reverse:red` | `1;7;<farbe>` |
+| 256-colour | `226` (0-255) | `38;5;n` |
+| Bold | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<colour>` |
+| Reverse | `reverse:red`, `reverse:orange` | `7;<colour>` (colour becomes the background) |
+| Combined | `bold:reverse:red` | `1;7;<colour>` |
 
-Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …) aus
-der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit sie
-dynamisch umschalten kann (siehe `selfColorize` oben).
+These are **not** CSS names and **not** theme names (`warning`, `error`, …) from
+the Pi/Powerline theme world – the extension colours in ANSI itself so it can
+switch dynamically (see `selfColorize` above).
 
-Gängige Alternativen für den Wechsel-Highlight:
+Common alternatives for the switch highlight:
 
 ```bash
-/provider-cost switchColor bold:#ffd700   # Default: fett gold (truecolor)
-/provider-cost switchColor bold:220       # gold, 256-Farben (überall verfügbar)
-/provider-cost switchColor bold:226       # reines Gelb, 256-Farben
-/provider-cost switchColor bold:yellow    # fett hellgelb
-/provider-cost color none                 # gar keine Einfärbung
+/provider-cost switchColor bold:#ffd700   # default: bold gold (truecolor)
+/provider-cost switchColor bold:220       # gold, 256-colour (available everywhere)
+/provider-cost switchColor bold:226       # pure yellow, 256-colour
+/provider-cost switchColor bold:yellow    # bold bright yellow
+/provider-cost color none                 # no colouring at all
 ```
 
-## Befehle
+## Commands
 
-| Befehl | Wirkung |
+| Command | Effect |
 | --- | --- |
-| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icons, Farben, Lookup+Refresh-Intervall, Anzeige, Tag/Quelle, Cache-Alter in Prompts |
-| `/provider-cost on` | Anzeige einschalten (persistiert) |
-| `/provider-cost off` | Anzeige ausschalten (persistiert) |
-| `/provider-cost toggle` | Umschalten (persistiert) |
-| `/provider-cost refresh` | Wechselkurse neu laden **und** Provider/Kosten per Generation-API neu ermitteln (falls möglich) |
-| `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
-| `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
-| `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert, s. [Farben](#farben)) |
-| `/provider-cost switchColor <spec>` | Wechselfarbe (Providerwechsel) setzen (persistiert, s. [Farben](#farben)) |
-| `/provider-cost style <plain\|bold\|reverse>` | Attribute der Abweichungsfarbe am In/Out-Icon (persistiert; Default `plain`) |
-| `/provider-cost threshold <green\|yellow\|orange> <pct>` | Abweichungs-Schwelle in Prozent setzen (persistiert; Defaults 10/10/20) |
-| `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung ein/aus; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
-| `/provider-cost notify <on\|off>` | Benachrichtigung bei jeder automatischen Generation-API-Anfrage (persistiert; Default `off`) |
+| `/provider-cost` or `/provider-cost status` | State, currency, icons, colours, lookup+refresh interval, display, tag/source, cache age in prompts |
+| `/provider-cost on` | Enable the display (persisted) |
+| `/provider-cost off` | Disable the display (persisted) |
+| `/provider-cost toggle` | Toggle (persisted) |
+| `/provider-cost refresh` | Reload exchange rates **and** re-resolve provider/costs via the generation API (if possible) |
+| `/provider-cost currency <CODE>` | Set the display currency (persisted) |
+| `/provider-cost icons <auto\|nerd\|ascii>` | Set the icon mode (persisted) |
+| `/provider-cost color <spec>` | Set the base colour, e.g. `white`, `#ffd700`, `226`, `bold:yellow` (persisted, see [Colours](#colours)) |
+| `/provider-cost switchColor <spec>` | Set the switch colour (provider change) (persisted, see [Colours](#colours)) |
+| `/provider-cost style <plain\|bold\|reverse>` | Attributes of the deviation colour on the in/out icon (persisted; default `plain`) |
+| `/provider-cost threshold <green\|yellow\|orange> <pct>` | Set a deviation threshold in percent (persisted; defaults 10/10/20) |
+| `/provider-cost lookup <on\|off\|refresh>` | Provider resolution on/off; `refresh` clears the provider **and** pricing cache and re-resolves |
+| `/provider-cost notify <on\|off>` | Notification for every automatic generation-API request (persisted; default `off`) |
 
-## Konfiguration
+## Configuration
 
-In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost` (analog
-zum Extension-Namen). Andere Keys bleiben unangetastet; alle Werte sind auch per
-Befehl setzbar.
+In `~/.pi/agent/settings.json` under the root key `realtime-provider-cost`
+(matching the extension name). Other keys are left untouched; every value can
+also be set via a command.
 
 ```jsonc
 {
@@ -218,140 +218,139 @@ Befehl setzbar.
 }
 ```
 
-| Feld | Default | Beschreibung |
+| Field | Default | Description |
 | --- | --- | --- |
-| `enabled` | `true` | Anzeige ein/aus |
+| `enabled` | `true` | Display on/off |
 | `currency` | `"USD"` | `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
-| `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` – `nerd`/`auto` nutzen `↑`/`↓`, `ascii` `in:`/`out:` |
-| `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
-| `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
-| `deviationStyle` | `"plain"` | SGR-Attribute der Abweichungsfarbe am Icon: `plain`, `bold`, `reverse` |
-| `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Prozent-Schwellen: unter `-green` grün, bis `yellow` gelb, bis `orange` orange, darüber rot (alle ≥ 0) |
-| `lookupUpstreamProvider` | `true` | Provider/Kosten-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
-| `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert; `0` = immer neu auflösen |
-| `notifyGenerationLookup` | `false` | Notify vor jeder automatischen Generation-API-Anfrage (mit Grund) |
+| `icons` | `"auto"` | `auto` (terminal heuristic), `nerd`, `ascii` – `nerd`/`auto` use `↑`/`↓`, `ascii` uses `in:`/`out:` |
+| `color` | `"white"` | Base colour: palette name, `#rrggbb` or `0-255`, optionally with `bold:` |
+| `switchColor` | `"bold:#ffd700"` | Colour right after a detected provider change |
+| `deviationStyle` | `"plain"` | SGR attributes of the deviation colour on the icon: `plain`, `bold`, `reverse` |
+| `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Percentage thresholds: below `-green` green, up to `yellow` yellow, up to `orange` orange, above red (all ≥ 0) |
+| `lookupUpstreamProvider` | `true` | Provider/cost resolution active (routing constraint + cache + generation API) |
+| `providerCacheRefreshPrompts` | `10` | After this many **prompts** (user turns) a `generation` cache entry is refreshed; `0` = always re-resolve |
+| `notifyGenerationLookup` | `false` | Notify before every automatic generation-API request (with reason) |
 
 ### Icons
 
 1. Env `PROVIDER_COST_NERD_FONTS=1` (nerd) / `=0` (ascii)
 2. Config `icons`
-3. `auto`: Heuristik wie Powerline (`GHOSTTY_RESOURCES_DIR` bzw.
+3. `auto`: heuristic like Powerline (`GHOSTTY_RESOURCES_DIR` or
    `TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku)
 
-Viele Terminals setzen nur `TERM=xterm-256color` → `auto` liefert ASCII
-(`in:`/`out:`); für Icons `icons: "nerd"` bzw. `/provider-cost icons nerd`.
+Many terminals only set `TERM=xterm-256color` → `auto` yields ASCII
+(`in:`/`out:`); for icons use `icons: "nerd"` or `/provider-cost icons nerd`.
 
-> Die vorher genutzten Nerd-Font-Pfeile (`U+F090`/`U+F08B`) wurden durch `↑`/`↓`
-> ersetzt, weil Private-Use-Glyphen deutlich kleiner gerendert werden.
+> The previously used Nerd Font arrows (`U+F090`/`U+F08B`) were replaced by
+> `↑`/`↓` because private-use glyphs are rendered noticeably smaller.
 
-### Rundung
+### Rounding
 
-Auf **maximal 4 Nachkommastellen** gerundet, überflüssige Nullen entfernt
-(`$2`, `$12.5`, `$0.2896`).
+Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
+`$0.2896`).
 
-## Funktionsweise
+## How it works
 
-- **Echte Abrechnung statt Katalogpreis.** Quelle der Zahlen ist OpenRouter: die
-  **Generation-API** liefert `total_cost` (tatsächlich berechnet) und die
-  Token-Zahlen, die **Endpoint-Preise** liefern das Verhältnis der Buckets
-  (Input/Output/Cache) des tatsächlich bedienenden Providers:
+- **Real billing instead of catalogue price.** The source of the numbers is
+  OpenRouter: the **generation API** returns `total_cost` (actually charged) and
+  the token counts, and the **endpoint prices** provide the bucket ratio
+  (input/output/cache) of the provider that actually served the request:
 
   ```
-  modelled = prompt*in + completion*out + cacheRead*cacheReadTokens   (aus Endpoint-Preisen)
-  factor   = total_cost / modelled          # Discounts, Peak-Overrides, Preisänderungen
-  in-Rate  = prompt * factor                (USD pro 1 Mio. Tokens)
-  out-Rate = completion * factor
+  modelled = prompt*in + completion*out + cacheRead*cacheReadTokens   (from endpoint prices)
+  factor   = total_cost / modelled          # discounts, peak overrides, price changes
+  in-rate  = prompt * factor                (USD per 1M tokens)
+  out-rate = completion * factor
   ```
 
-  Der `factor` sorgt dafür, dass die Anzeige der Rechnung entspricht, auch wenn
-  Endpoint-Preise (noch) nicht exakt dem abgerechneten Satz entsprechen. Solange
-  keine API-Daten vorliegen, wird die Näherung aus `usage.cost.*` (Pi-Katalog)
-  angezeigt.
+  The `factor` makes the display match the invoice even when endpoint prices do
+  not (yet) exactly match the billed rate. As long as no API data is available,
+  the approximation from `usage.cost.*` (Pi catalogue) is shown.
 
-- **Auflösung.** Reihenfolge:
-  1. **Routing-Constraint** aus `models.json`
+- **Resolution.** Order:
+  1. **Routing constraint** from `models.json`
      (`providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`)
-     – gilt nur als *sicher*, wenn `allow_fallbacks: false` gesetzt ist. Bei
-     `allow_fallbacks: true` (OpenRouter-Default) kann ein anderer Provider
-     bedienen, auch wenn `only` genau einen nennt.
-  2. **Persistenter Raten-Cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
-     Key = Request-Model. Einträge werden nach `providerCacheRefreshPrompts`
-     **Prompts** (nicht nach Zeit) ungültig.
-  3. **Generation-API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
-     – liefert Provider **und** echten Betrag, max. 1 Call pro Model gleichzeitig.
-     Daten sind erst einige Sekunden nach dem Call verfügbar → Retry mit Backoff
-     (1s/2s/4s/8s). Währenddessen wird statt des Provider-Tags ein
-     **„update in progress"-Icon** (`⟳`) angezeigt.
+     – only counts as *certain* when `allow_fallbacks: false` is set. With
+     `allow_fallbacks: true` (OpenRouter default) another provider may serve even
+     if `only` names exactly one.
+  2. **Persistent rate cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
+     key = request model. Entries expire after `providerCacheRefreshPrompts`
+     **prompts** (not by time).
+  3. **Generation API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
+     – returns the provider **and** the real amount, at most 1 call per model at a
+     time. Data is only available a few seconds after the call → retry with
+     backoff (1s/2s/4s/8s). Meanwhile an **"update in progress" icon** (`⟳`) is
+     shown instead of the provider tag.
 
-  **Wann wird die API aufgerufen?**
-  - Provider *sicher* (ein `only`-Eintrag **und** `allow_fallbacks: false`) →
-    1× beim ersten Call, danach nur alle N Prompts (Raten-Cache).
-  - Provider *nicht sicher* (`allow_fallbacks: true` oder kein `only`) →
-    **pro Response**, weil nur der tatsächliche Provider zählt.
-  - **Modelwechsel** (anderes Request-Model als beim vorherigen Call) →
-    erzwungener Refresh von Provider **und** Kosten, auch wenn der Cache noch
-    frisch wäre. Ein Session-Restore mit gleichem Model ist kein Wechsel.
+  **When is the API called?**
+  - Provider *certain* (one `only` entry **and** `allow_fallbacks: false`) →
+    once on the first call, afterwards only every N prompts (rate cache).
+  - Provider *not certain* (`allow_fallbacks: true` or no `only`) →
+    **per response**, because only the actual provider counts.
+  - **Model switch** (different request model than the previous call) → forced
+    refresh of provider **and** costs, even if the cache would still be fresh. A
+    session restore with the same model is not a switch.
 
-  **Benachrichtigung.** (Optional, Default **aus**: Setting `notifyGenerationLookup`
-  bzw. `/provider-cost notify on`.) Jede automatisch ausgelöste
-  Generation-API-Anfrage wird als Notify gemeldet, inkl. Grund in Klammern, z. B.
-  `Generation-API: Provider/Kosten für deepseek/… werden abgefragt (Cache Miss).`
-  Gründe: `Cache Miss`, `Cache abgelaufen (N Prompts)`, `Cache ohne Raten`,
-  `Cache veraltet`, `Modellwechsel`, `manueller Refresh` (`/provider-cost refresh`),
-  `Cache geleert` (`/provider-cost lookup refresh`).
+  **Notification.** (Optional, default **off**: setting
+  `notifyGenerationLookup` or `/provider-cost notify on`.) Every automatically
+  triggered generation-API request is reported as a notify, including the reason
+  in parentheses, e.g.
+  `Generation API: resolving provider/costs for deepseek/… (cache miss).`
+  Reasons: `cache miss`, `cache expired (N prompts)`, `cache without rates`,
+  `stale cache`, `model switch`, `manual refresh` (`/provider-cost refresh`),
+  `cache cleared` (`/provider-cost lookup refresh`).
 
-- **Vorschau beim Modellwechsel.** Beim Umschalten des Modells (`model_select`)
-  werden sofort die **Katalogpreise** (`models-store.json`) des neuen Modells
-  angezeigt. Der bedienende Provider steht zu diesem Zeitpunkt noch nicht fest
-  (der erste Call des neuen Modells läuft noch) → der Tag zeigt `?`. Sobald die
-  erste Antwort eintrifft, ersetzt der echte Wert (inkl. Provider-Tag bzw. `⟳`
-  während der Auflösung) die Vorschau. Stufentarife werden in der Vorschau nicht
-  berücksichtigt – ohne Tokenzahlen sind nur die Basis-Sätze bekannt.
-  - **`/provider-cost refresh`** → lädt die Wechselkurse **und** erzwingt einen
-    Generation-API-Call (Provider + Kosten), sofern möglich (OpenRouter,
-    `lookupUpstreamProvider` aktiv, `responseId` vorhanden, kein Lookup läuft
-    bereits). Cache leeren vorher mit `/provider-cost lookup refresh`.
+- **Preview on model switch.** When the model is switched (`model_select`), the
+  **catalogue prices** (`models-store.json`) of the new model are shown
+  immediately. The serving provider is not known at that point yet (the first
+  call of the new model is still running) → the tag shows `?`. As soon as the
+  first response arrives, the real value (including provider tag, or `⟳` while
+  resolving) replaces the preview. Tiered pricing is not applied in the preview –
+  without token counts only the base rates are known.
+  - **`/provider-cost refresh`** → reloads the exchange rates **and** forces a
+    generation-API call (provider + costs) when possible (OpenRouter,
+    `lookupUpstreamProvider` active, `responseId` present, no lookup already
+    running). Clear the cache first with `/provider-cost lookup refresh`.
 
-  Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel bei
-  `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut nach
-  dem 10. weiteren Prompt.
+  The prompt counter is persisted in the cache and survives restarts. Example
+  with `providerCacheRefreshPrompts: 10`: resolution on the 1st prompt, then
+  again after the 10th further prompt.
 
-- **Invalidierung per Aufruf-Zähler:** Es gibt kein Signal, das einen
-  Providerwechsel pro Response verrät (Model-Slug, `system_fingerprint`,
-  `native_finish_reason`, `service_tier` sind provider-unabhängig). Bei sicherem
-  Provider ist dieser kurzfristig stabil, daher genügt die Auflösung alle N
-  Prompts; sonst wird pro Response gefragt.
-- **Zwei Caches:** `provider-cache.json` (Provider + Raten pro Model) und
-  `endpoint-pricing.json` (Provider-Preislisten, 24 h). `/provider-cost lookup refresh`
-  leert beide.
-- **Kein Batch-Endpoint:** OpenRouter bietet weder Mehrfach-IDs noch eine
-  Generations-Liste; `/api/v1/activity` erfordert einen Management-Key.
-- **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert
-  wird erst bei `message_end`.
-- **Failover:** Ist eine Seite nicht berechenbar (z. B. `usage.input == 0`) oder
-  fehlt der Umrechnungskurs, wird pro Seite `?` angezeigt.
-- **Subscription-Provider** (OAuth bzw. `kimi-coding`) → Element wird ausgeblendet.
-- **Gratismodelle** werden als `$0/$0` angezeigt.
-- **Währungsumrechnung** analog `pi-powerline-footer` (gleiche Quelle, 24h-Cache,
-  eigene Datei `…/realtime-provider-cost/currency-rates.json`); unabhängig von
+- **Invalidation by call counter:** there is no signal that reveals a provider
+  switch per response (model slug, `system_fingerprint`, `native_finish_reason`,
+  `service_tier` are provider-independent). With a certain provider it is stable
+  in the short term, so resolving every N prompts suffices; otherwise it is
+  queried per response.
+- **Two caches:** `provider-cache.json` (provider + rates per model) and
+  `endpoint-pricing.json` (provider price lists, 24 h). `/provider-cost lookup refresh`
+  clears both.
+- **No batch endpoint:** OpenRouter offers neither multiple IDs nor a generations
+  list; `/api/v1/activity` requires a management key.
+- **While streaming** the last known value stays; it is only updated on
+  `message_end`.
+- **Failover:** if one side is not computable (e.g. `usage.input == 0`) or the
+  conversion rate is missing, `?` is shown per side.
+- **Subscription providers** (OAuth or `kimi-coding`) → the item is hidden.
+- **Free models** are shown as `$0/$0`.
+- **Currency conversion** mirrors `pi-powerline-footer` (same source, 24h cache,
+  own file `…/realtime-provider-cost/currency-rates.json`); independent of
   Powerline.
-- **Kein Eingriff in Pi:** Die Extension ersetzt weder Footer noch Kostenrechnung;
-  die Session-Kostensumme daneben bleibt Pi's Katalogwert.
+- **No interference with Pi:** the extension replaces neither the footer nor the
+  cost calculation; the session cost sum next to it remains Pi's catalogue value.
 
-## Hintergrund: warum der Umweg über die Generation-API?
+## Background: why the generation API detour?
 
-OpenRouter liefert den Serving-Provider im Stream-Chunk als `provider`-Feld, Pi
-(`pi-ai`) verwirft es jedoch (liest nur `chunk.id` und `chunk.model`). Ebenso
-verwirft Pi den tatsächlichen Kostenbetrag (`usage.cost`) und berechnet Kosten aus
-der Preistabelle (`models-store.json`) – die den **Modell-Basispreis**, nicht den
-Preis des gerouteten Providers abbildet (Beispiel `deepseek/deepseek-v4.1-flash`
-via Fireworks: Katalog 0.15/0.60 vs. real 0.22/0.66). Ein Provider-Header
-existiert nicht (`X-Provider-Name` ist nur als „exposed" gelistet, wird aber
-nicht gesendet). Die Generation-API ist damit die einzige verlässliche Quelle für
-Provider und abgerechneten Betrag.
+OpenRouter delivers the serving provider in the stream chunk as a `provider`
+field, but Pi (`pi-ai`) discards it (it only reads `chunk.id` and `chunk.model`).
+Pi likewise discards the actual cost amount (`usage.cost`) and computes costs from
+the price table (`models-store.json`) – which reflects the **model base price**,
+not the price of the routed provider (example `deepseek/deepseek-v4.1-flash` via
+Fireworks: catalogue 0.15/0.60 vs. real 0.22/0.66). No provider header exists
+(`X-Provider-Name` is only listed as "exposed" but is not sent). The generation
+API is therefore the only reliable source for provider and billed amount.
 
-## Abhängigkeiten
+## Dependencies
 
-`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent` und
-`@earendil-works/pi-tui` werden von Pi gebündelt und sind daher nur als optionale
-`peerDependencies` deklariert. Keine Laufzeit-Abhängigkeiten zu anderen Extensions.
+`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent` and
+`@earendil-works/pi-tui` are bundled by Pi and are therefore only declared as
+optional `peerDependencies`. No runtime dependencies on other extensions.

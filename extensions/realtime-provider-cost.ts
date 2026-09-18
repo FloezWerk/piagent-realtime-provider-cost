@@ -1,23 +1,25 @@
 /**
  * realtime-provider-cost
  *
- * Zeigt in der Statusleiste die effektiven Tokenpreise (Input/Output, pro 1 Mio.
- * Tokens) des Providers/Modells des **letzten** API-Calls an.
+ * Shows the effective token prices (input/output, per 1M tokens) of the
+ * provider/model of the **last** API call in the status bar.
  *
- * - Preise werden aus dem gemeldeten `usage.cost.*` abgeleitet (effektiver Preis,
- *   inkl. Tiers/Service-Tier/Routing), nicht aus der statischen Preistabelle.
- * - Das Provider-Tag zeigt den von OpenRouter gewaehlten Serving-/Routing-Provider.
- *   Aufloesung in dieser Reihenfolge (moeglichst ohne REST-Call):
- *     1. Routing-Constraint `openRouterRouting.only` aus models.json (statisch, 0 Calls)
- *     2. persistenter Provider-Cache (TTL)
- *     3. Generation-API (nur bei Cache-Miss/-Ablauf, mit Backoff)
- * - Umrechnung in die konfigurierte Waehrung analog pi-powerline-footer.
- * - Die Extension ist eigenstaendig: ohne pi-powerline-footer erscheint der Wert
- *   als eigene Footer-Zeile; mit Powerline kann er ueber `customItems`/`statusKey`
- *   als Segment neben der Kostensumme platziert werden.
+ * - Prices are derived from the reported `usage.cost.*` (effective price,
+ *   including tiers/service tier/routing), not from the static catalogue.
+ * - The provider tag shows the serving/routing provider chosen by OpenRouter.
+ *   Resolution order (avoiding a REST call where possible):
+ *     1. routing constraint `openRouterRouting.only` from models.json (static, 0 calls)
+ *     2. persistent provider cache (TTL)
+ *     3. generation API (only on cache miss/expiry, with backoff)
+ * - Converted into the configured currency, mirroring pi-powerline-footer.
+ * - The extension is self-contained: without pi-powerline-footer the value
+ *   appears as its own footer line; with Powerline it can be placed next to the
+ *   cost sum via `customItems`/`statusKey`.
  *
- * Statuskanal: `realtime-provider-cost` (via `ctx.ui.setStatus`).
- * Settings-Rootkey: `realtime-provider-cost` in `~/.pi/agent/settings.json`.
+ * Status channel: `realtime-provider-cost` (via `ctx.ui.setStatus`).
+ * Settings root key: `realtime-provider-cost` in `~/.pi/agent/settings.json`.
+ *
+ * Note: all user-facing output, settings and docs are English (see AGENTS.md).
  */
 
 import type {
@@ -299,21 +301,21 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   /** Why a fresh generation-API request is necessary, for the notify text. */
   function generationReason(key: string): string {
     const entry = providerCache.peek(key);
-    if (!entry) return "Cache Miss";
+    if (!entry) return "cache miss";
 
     const age = providerCache.promptCount() - entry.promptCount;
     if (entry.source === "generation" && age >= settings.providerCacheRefreshPrompts) {
-      return `Cache abgelaufen (${age} Prompts)`;
+      return `cache expired (${age} prompts)`;
     }
-    if (entry.inputRate == null || entry.outputRate == null) return "Cache ohne Raten";
-    return "Cache veraltet";
+    if (entry.inputRate == null || entry.outputRate == null) return "cache without rates";
+    return "stale cache";
   }
 
   /** Announces an outgoing generation-API request including its reason. */
   function notifyGenerationRequest(ctx: ExtensionContext, target: RateSnapshot, reason: string): void {
     if (!settings.notifyGenerationLookup || !ctx.hasUI) return;
     ctx.ui.notify(
-      `Generation-API: Provider/Kosten für ${target.requestModel} werden abgefragt (${reason}).`,
+      `Generation API: resolving provider/costs for ${target.requestModel} (${reason}).`,
       "info",
     );
   }
@@ -338,8 +340,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (snapshot) void resolveProvider(ctx, snapshot);
   });
 
-  // Nur finalisierte Assistant-Nachrichten aktualisieren den Wert; waehrend des
-  // Streamings bleibt der alte Wert stehen.
+  // Only finalized assistant messages update the value; while streaming the
+  // previous value stays in place.
   // Switching the model immediately previews the catalogue prices of the new
   // model. There is no serving provider yet, so the tag shows "?".
   pi.on("model_select", (event: ModelSelectEvent, ctx: ExtensionContext) => {
@@ -366,11 +368,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     lastModel = next.requestModel;
 
     render(ctx);
-    void resolveProvider(ctx, next, { force: modelChanged, reason: modelChanged ? "Modellwechsel" : undefined });
+    void resolveProvider(ctx, next, { force: modelChanged, reason: modelChanged ? "model switch" : undefined });
   });
 
   pi.registerCommand(COMMAND_NAME, {
-    description: "Effektive Provider-Tokenpreise anzeigen/ein-/ausschalten",
+    description: "Show/toggle the effective provider token prices",
     getArgumentCompletions: (prefix: string) => {
       const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "notify", "color", "switchColor", "style", "threshold"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
@@ -451,14 +453,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         settings = { ...settings, enabled };
         await saveSettings({ enabled });
         render(ctx);
-        notifyState(ctx, enabled ? "aktiviert" : "deaktiviert");
+        notifyState(ctx, enabled ? "enabled" : "disabled");
         return;
       }
       case "toggle": {
         settings = { ...settings, enabled: !settings.enabled };
         await saveSettings({ enabled: settings.enabled });
         render(ctx);
-        notifyState(ctx, settings.enabled ? "aktiviert" : "deaktiviert");
+        notifyState(ctx, settings.enabled ? "enabled" : "disabled");
         return;
       }
       case "refresh": {
@@ -473,14 +475,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           snapshot.responseId !== null;
 
         if (lookupPossible && snapshot) {
-          void resolveProvider(ctx, snapshot, { force: true, reason: "manueller Refresh" });
+          void resolveProvider(ctx, snapshot, { force: true, reason: "manual refresh" });
         }
 
         ctx.ui.notify(
           (ok
-            ? "Wechselkurse neu geladen."
-            : "Wechselkurse konnten nicht geladen werden (nutze ggf. gecachte Werte oder '?').")
-            + (lookupPossible ? " Provider/Kosten werden neu ermittelt." : ""),
+            ? "Exchange rates reloaded."
+            : "Exchange rates could not be loaded (using cached values or '?' if available).")
+            + (lookupPossible ? " Provider/costs are being re-resolved." : ""),
           ok ? "info" : "warning",
         );
         return;
@@ -489,7 +491,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const code = normalizeCurrency(rest[0]);
         if (!code) {
           ctx.ui.notify(
-            `Unbekannte Währung "${rest[0] ?? ""}". Erlaubt: ${SUPPORTED_CURRENCIES.join(", ")}.`,
+            `Unknown currency "${rest[0] ?? ""}". Allowed: ${SUPPORTED_CURRENCIES.join(", ")}.`,
             "warning",
           );
           return;
@@ -498,7 +500,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         await saveSettings({ currency: code });
         if (code !== "USD") await ensureRatesLoaded();
         render(ctx);
-        ctx.ui.notify(`Währung auf ${code} gesetzt.`, "info");
+        ctx.ui.notify(`Currency set to ${code}.`, "info");
         return;
       }
       case "threshold": {
@@ -507,7 +509,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const value = Number(rest[1]);
         if (!which || !keys.includes(which) || rest[1] === undefined || !Number.isFinite(value) || value < 0) {
           ctx.ui.notify(
-            `Erwartet: /${COMMAND_NAME} threshold <green|yellow|orange> <prozent> (>= 0)`,
+            `Expected: /${COMMAND_NAME} threshold <green|yellow|orange> <percent> (>= 0)`,
             "warning",
           );
           return;
@@ -517,9 +519,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         await saveSettings({ deviationThresholds });
         render(ctx);
         ctx.ui.notify(
-          `Schwelle ${which} auf ${value}% gesetzt `
-            + `(grün < -${deviationThresholds.green}%, gelb <= ${deviationThresholds.yellow}%, `
-            + `orange <= ${deviationThresholds.orange}%, sonst rot).`,
+          `Threshold ${which} set to ${value}% `
+            + `(green < -${deviationThresholds.green}%, yellow <= ${deviationThresholds.yellow}%, `
+            + `orange <= ${deviationThresholds.orange}%, else red).`,
           "info",
         );
         return;
@@ -528,7 +530,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const mode: DeviationStyle | undefined = normalizeDeviationStyle(rest[0]);
         if (!mode) {
           ctx.ui.notify(
-            `Unbekannter Style "${rest[0] ?? ""}". Erlaubt: ${DEVIATION_STYLES.join(", ")}.`,
+            `Unknown style "${rest[0] ?? ""}". Allowed: ${DEVIATION_STYLES.join(", ")}.`,
             "warning",
           );
           return;
@@ -536,14 +538,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         settings = { ...settings, deviationStyle: mode };
         await saveSettings({ deviationStyle: mode });
         render(ctx);
-        ctx.ui.notify(`Abweichungs-Style auf ${mode} gesetzt.`, "info");
+        ctx.ui.notify(`Deviation style set to ${mode}.`, "info");
         return;
       }
       case "icons": {
         const mode = normalizeIconMode(rest[0]);
         if (!mode) {
           ctx.ui.notify(
-            `Unbekannter Icon-Modus "${rest[0] ?? ""}". Erlaubt: ${ICON_MODES.join(", ")}.`,
+            `Unknown icon mode "${rest[0] ?? ""}". Allowed: ${ICON_MODES.join(", ")}.`,
             "warning",
           );
           return;
@@ -551,7 +553,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         settings = { ...settings, icons: mode };
         await saveSettings({ icons: mode });
         render(ctx);
-        ctx.ui.notify(`Icon-Modus auf ${mode} gesetzt.`, "info");
+        ctx.ui.notify(`Icon mode set to ${mode}.`, "info");
         return;
       }
       case "color":
@@ -559,8 +561,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const name = normalizeColorSpec(rest[0]);
         if (!name) {
           ctx.ui.notify(
-            `Unbekannte Farbe "${rest[0] ?? ""}". Erlaubt: ${COLOR_NAMES.join(", ")}, `
-              + `Hex (#ffd700), 256-Code (226) sowie "bold:..."/"reverse:..." (bold:yellow, reverse:red).`,
+            `Unknown colour "${rest[0] ?? ""}". Allowed: ${COLOR_NAMES.join(", ")}, `
+              + `hex (#ffd700), 256-code (226), and "bold:..."/"reverse:..." (bold:yellow, reverse:red).`,
             "warning",
           );
           return;
@@ -569,19 +571,19 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         settings = isSwitch ? { ...settings, switchColor: name } : { ...settings, color: name };
         await saveSettings(isSwitch ? { switchColor: name } : { color: name });
         render(ctx);
-        ctx.ui.notify(`${isSwitch ? "Wechselfarbe" : "Farbe"} auf ${name} gesetzt.`, "info");
+        ctx.ui.notify(`${isSwitch ? "Switch colour" : "Colour"} set to ${name}.`, "info");
         return;
       }
       case "notify": {
         const mode = rest[0]?.toLowerCase();
         if (mode !== "on" && mode !== "off") {
-          ctx.ui.notify(`Erwartet: /${COMMAND_NAME} notify on|off`, "warning");
+          ctx.ui.notify(`Expected: /${COMMAND_NAME} notify on|off`, "warning");
           return;
         }
         settings = { ...settings, notifyGenerationLookup: mode === "on" };
         await saveSettings({ notifyGenerationLookup: settings.notifyGenerationLookup });
         ctx.ui.notify(
-          `Generation-API-Benachrichtigung ${settings.notifyGenerationLookup ? "aktiviert" : "deaktiviert"}.`,
+          `Generation-API notification ${settings.notifyGenerationLookup ? "enabled" : "disabled"}.`,
           "info",
         );
         return;
@@ -596,13 +598,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
             snapshot.upstreamProvider = null;
             snapshot.providerSource = null;
             render(ctx);
-            void resolveProvider(ctx, snapshot, { reason: "Cache geleert" });
+            void resolveProvider(ctx, snapshot, { reason: "cache cleared" });
           }
-          ctx.ui.notify("Provider-Cache geleert; Auflösung läuft.", "info");
+          ctx.ui.notify("Provider cache cleared; resolution running.", "info");
           return;
         }
         if (mode !== "on" && mode !== "off") {
-          ctx.ui.notify(`Erwartet: /${COMMAND_NAME} lookup on|off|refresh`, "warning");
+          ctx.ui.notify(`Expected: /${COMMAND_NAME} lookup on|off|refresh`, "warning");
           return;
         }
         settings = { ...settings, lookupUpstreamProvider: mode === "on" };
@@ -610,7 +612,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         render(ctx);
         if (settings.lookupUpstreamProvider && snapshot) void resolveProvider(ctx, snapshot);
         ctx.ui.notify(
-          `Provider-Auflösung ${settings.lookupUpstreamProvider ? "aktiviert" : "deaktiviert"}.`,
+          `Provider resolution ${settings.lookupUpstreamProvider ? "enabled" : "disabled"}.`,
           "info",
         );
         return;
@@ -618,14 +620,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       case "status":
       default: {
         if (action !== "status") {
-          ctx.ui.notify(`Unbekannte Option "${action}". Nutze: ${commandUsage()}`, "warning");
+          ctx.ui.notify(`Unknown option "${action}". Use: ${commandUsage()}`, "warning");
           return;
         }
         const text = currentText();
-        const state = settings.enabled ? "an" : "aus";
+        const state = settings.enabled ? "on" : "off";
         const active = snapshot
           ? `${snapshot.provider}/${snapshot.requestModel}${snapshot.subscription ? " (subscription)" : ""}`
-          : "noch kein API-Call";
+          : "no API call yet";
         const tag = snapshot ? upstreamTag(snapshot) : null;
         const source = snapshot?.providerSource ?? "-";
         const cached = snapshot ? providerCache.peek(snapshot.requestModel) : null;
@@ -635,16 +637,16 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
             + (cached.inputRate != null ? `, rates:api` : "")
           : "cache:-";
         ctx.ui.notify(
-          `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
-          + ` · Farben: ${settings.color}/${settings.switchColor}`
-          + ` (Abweichung: ${settings.deviationStyle}, Schwellen: `
+          `Provider prices: ${state} · currency: ${settings.currency} · icons: ${settings.icons}`
+          + ` · colours: ${settings.color}/${settings.switchColor}`
+          + ` (deviation: ${settings.deviationStyle}, thresholds: `
           + `-${settings.deviationThresholds.green}/${settings.deviationThresholds.yellow}/`
           + `${settings.deviationThresholds.orange}%)`
-          + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
-          + ` · Notify: ${settings.notifyGenerationLookup ? "on" : "off"}`
-          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source})`
-          + ` · Preise: ${snapshot?.cataloguePreview ? "katalog (Vorschau)" : snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
-          + ` · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
+          + ` · lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh every ${settings.providerCacheRefreshPrompts} prompts)`
+          + ` · notify: ${settings.notifyGenerationLookup ? "on" : "off"}`
+          + ` · display: ${text ?? "-"} · model: ${active} · tag: ${tag ?? "-"} (${source})`
+          + ` · rates: ${snapshot?.cataloguePreview ? "catalogue (preview)" : snapshot?.ratesFromApi ? "api" : "catalogue"} · ${cacheInfo}`
+          + ` · prompts: ${prompts} · cache entries: ${providerCache.size()}`,
           "info",
         );
         return;
@@ -656,8 +658,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     const text = currentText();
     ctx.ui.notify(
       text
-        ? `Provider-Preise ${state} · ${text}`
-        : `Provider-Preise ${state}${snapshot ? "" : " (noch kein API-Call)"}.`,
+        ? `Provider prices ${state} · ${text}`
+        : `Provider prices ${state}${snapshot ? "" : " (no API call yet)"}.`,
       "info",
     );
   }
