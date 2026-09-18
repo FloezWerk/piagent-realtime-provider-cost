@@ -18,6 +18,7 @@ interface AssistantLike {
   model: string;
   responseModel?: string;
   stopReason?: string;
+  responseId?: string;
   usage: {
     input: number;
     output: number;
@@ -45,10 +46,23 @@ export interface RateSnapshot {
   inputUsdPerMillion: number | null;
   /** Effective output price in USD per 1M tokens, null when not computable. */
   outputUsdPerMillion: number | null;
+  /** Provider id as configured in Pi (e.g. "openrouter"). */
   provider: string;
   model: string;
+  /** Provider-side response/generation id (`gen-...` for OpenRouter). */
+  responseId: string | null;
+  /**
+   * Actual upstream/serving provider name when known (looked up for OpenRouter),
+   * otherwise null. Used for the display tag.
+   */
+  upstreamProvider: string | null;
   /** Model is subscription-backed -> the whole status item is hidden. */
   subscription: boolean;
+}
+
+/** Provider id used as the display tag when no upstream provider is known. */
+export function displayProvider(snapshot: RateSnapshot): string {
+  return snapshot.upstreamProvider ?? snapshot.provider;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -108,6 +122,8 @@ export function snapshotFromMessage(
     outputUsdPerMillion: rate(message.usage.cost.output, message.usage.output),
     provider: message.provider,
     model: modelId,
+    responseId: typeof message.responseId === "string" && message.responseId ? message.responseId : null,
+    upstreamProvider: null,
     subscription: isSubscription(message.provider, modelId, registry),
   };
 }

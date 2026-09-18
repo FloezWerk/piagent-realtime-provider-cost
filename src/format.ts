@@ -4,7 +4,7 @@
 
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
 import { getPriceIcons, type IconMode } from "./icons.ts";
-import type { RateSnapshot } from "./pricing.ts";
+import { displayProvider, type RateSnapshot } from "./pricing.ts";
 
 /** Rounds to at most 4 decimals and trims trailing zeros for a compact look. */
 function formatNumber(value: number): string {
@@ -44,7 +44,7 @@ export function composeStatus(
   const icons = getPriceIcons(iconMode);
   const input = formatPrice(snapshot.inputUsdPerMillion, currency, rate);
   const output = formatPrice(snapshot.outputUsdPerMillion, currency, rate);
-  const provider = snapshot.provider.slice(0, 3);
+  const provider = displayProvider(snapshot).slice(0, 3);
 
   return `(${provider})${icons.input}${input}/${icons.output}${output}`;
 }

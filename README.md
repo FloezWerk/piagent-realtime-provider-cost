@@ -5,11 +5,12 @@ pro 1 Mio. Tokens)** des Providers/Modells des **letzten API-Calls** anzeigt –
 direkt neben der Session-Kostensumme.
 
 Format: `(<provider>)<in>/<out>` – der Provider-Prefix sind die ersten 3 Zeichen
-der Provider-ID, damit nachvollziehbar ist, von welchem Provider die Preise stammen.
+des Providers. Bei OpenRouter wird dafür der **echte Serving-Provider** (z. B.
+`Fir` → Fireworks) aufgelöst, nicht das Routing-`openrouter`.
 
 ```
-(ope)󰜷$2/󰜺$12     # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out)
-(ope)in:$2/out:$12  # ASCII-Fallback
+(Fir)󰜷$2/󰜺$12      # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out), z. B. Fireworks
+(ope)in:$2/out:$12  # ASCII-Fallback, solange der Upstream unbekannt ist
 ```
 
 > Hinweis: Die Nerd-Font-Glyphen sind Private-Use-Codepoints (`U+F090`, `U+F08B`)
@@ -28,7 +29,14 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
   Dadurch sind Preistiers, Service-Tier-Multiplikatoren, providerabhängige Tarife
   und OpenRouter-Routing automatisch enthalten. Der angezeigte Provider-Prefix
-  (z. B. `(ope)`) macht das überprüfbar.
+  macht das überprüfbar.
+- **Upstream-Provider (OpenRouter).** Pi liefert für erfolgreiche Calls keinen
+  Serving-Provider. Die Extension fragt daher best-effort
+  `GET https://openrouter.ai/api/v1/generation?id=<responseId>` ab und zeigt
+  `data.provider_name` (z. B. `Fireworks`). Diese Daten sind erst einige Sekunden
+  nach dem Call verfügbar → Retry mit Backoff (1s/2s/4s/8s). Bis dahin steht das
+  Provider-Kürzel `(ope)`. Nur für `provider == "openrouter"`, abschaltbar via
+  `lookupUpstreamProvider` bzw. `/provider-cost lookup off`.
 - **Nur Input/Output** (kein Cache-Read/Write).
 - **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert
   wird erst bei `message_end` (abgeschlossener API-Call).
@@ -107,13 +115,14 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 
 | Befehl | Wirkung |
 | --- | --- |
-| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icon-Modus, aktuelle Anzeige, letztes Modell |
+| `/provider-cost` bzw. `/provider-cost status` | Zustand, Währung, Icon-Modus, Lookup, aktuelle Anzeige, letztes Modell/Provider |
 | `/provider-cost on` | Anzeige einschalten (persistiert) |
 | `/provider-cost off` | Anzeige ausschalten (persistiert) |
 | `/provider-cost toggle` | Umschalten (persistiert) |
 | `/provider-cost refresh` | Wechselkurse neu laden |
 | `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
+| `/provider-cost lookup <on\|off>` | Upstream-Provider-Auflösung für OpenRouter (persistiert) |
 
 Unbekannte Optionen werden mit einem Hinweis quittiert.
 
@@ -127,7 +136,8 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
   "realtime-provider-cost": {
     "enabled": true,
     "currency": "EUR",
-    "icons": "nerd"
+    "icons": "nerd",
+    "lookupUpstreamProvider": true
   }
 }
 ```
@@ -137,6 +147,7 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | `enabled` | `true` | Anzeige ein/aus (per Slash-Command änderbar) |
 | `currency` | `"USD"` | Eine von: `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, `KRW` |
 | `icons` | `"auto"` | `auto` (Terminal-Heuristik), `nerd`, `ascii` |
+| `lookupUpstreamProvider` | `true` | OpenRouter-Serving-Provider über die Generation-API auflösen (zusätzlicher HTTP-Request mit dem Provider-Key) |
 
 ### Icons
 

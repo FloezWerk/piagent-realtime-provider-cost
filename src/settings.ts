@@ -41,12 +41,15 @@ export interface ExtensionSettings {
   currency: CurrencyCode;
   /** Icon variant: auto (terminal heuristic), nerd, or ascii. */
   icons: IconMode;
+  /** Resolve the actual OpenRouter upstream provider via the generation API. */
+  lookupUpstreamProvider: boolean;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   currency: "USD",
   icons: "auto",
+  lookupUpstreamProvider: true,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,6 +87,10 @@ export async function loadSettings(): Promise<ExtensionSettings> {
     enabled: typeof section.enabled === "boolean" ? section.enabled : DEFAULT_SETTINGS.enabled,
     currency: normalizeCurrency(section.currency) ?? DEFAULT_SETTINGS.currency,
     icons: normalizeIconMode(section.icons) ?? DEFAULT_SETTINGS.icons,
+    lookupUpstreamProvider:
+      typeof section.lookupUpstreamProvider === "boolean"
+        ? section.lookupUpstreamProvider
+        : DEFAULT_SETTINGS.lookupUpstreamProvider,
   };
 }
 
