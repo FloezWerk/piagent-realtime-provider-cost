@@ -159,6 +159,35 @@ pi -e ./extensions/realtime-provider-cost.ts
 
 Nach Änderungen in einer laufenden Session: `/reload`.
 
+## Farben
+
+Standardmäßig **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
+(`bold:#ffd700`), danach wieder weiß. Setzbar über `/provider-cost color …` bzw.
+`/provider-cost switchColor …` oder die Settings `color` / `switchColor`.
+
+Farbangaben sind frei wählbar:
+
+| Syntax | Beispiel | Ergebnis |
+| --- | --- | --- |
+| Palette | `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/91/92/96/95/94/90 |
+| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
+| 256-Farben | `226` (0-255) | `38;5;n` |
+| Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
+
+Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …)
+aus der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit
+sie dynamisch umschalten kann. (Bei Powerline daher `selfColorize: true` setzen,
+s. [Integration](#mit-pi-powerline-footer-empfohlen).)
+
+Gängige Alternativen für den Wechsel-Highlight:
+
+```bash
+/provider-cost switchColor bold:#ffd700   # Default: fett gold (truecolor)
+/provider-cost switchColor bold:220       # gold, 256-Farben (überall verfügbar)
+/provider-cost switchColor bold:226       # reines Gelb, 256-Farben
+/provider-cost switchColor bold:yellow    # fett hellgelb
+```
+
 ## Befehle
 
 | Befehl | Wirkung |
@@ -202,35 +231,6 @@ In `~/.pi/agent/settings.json` unter dem Rootkey `realtime-provider-cost`
 | `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
 | `lookupUpstreamProvider` | `true` | Provider-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert (Routing-Einträge nie); `0` = immer neu auflösen |
-
-### Farben
-
-Standardmäßig **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
-(`bold:#ffd700`), danach wieder weiß. Setzbar über `/provider-cost color …` bzw.
-`/provider-cost switchColor …` oder die Settings `color` / `switchColor`.
-
-Farbangaben sind frei wählbar:
-
-| Syntax | Beispiel | Ergebnis |
-| --- | --- | --- |
-| Palette | `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/91/92/96/95/94/90 |
-| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
-| 256-Farben | `226` (0-255) | `38;5;n` |
-| Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |
-
-Es sind **keine** CSS-Namen und **keine** Theme-Namen (`warning`, `error`, …)
-aus der Pi-/Powerline-Theme-Welt – die Extension färbt in ANSI selbst ein, damit
-sie dynamisch umschalten kann. (Bei Powerline daher `selfColorize: true` setzen,
-s. [Integration](#mit-pi-powerline-footer-empfohlen).)
-
-Gängige Alternativen für den Wechsel-Highlight:
-
-```bash
-/provider-cost switchColor bold:#ffd700   # Default: fett gold (truecolor)
-/provider-cost switchColor bold:220       # gold, 256-Farben (überall verfügbar)
-/provider-cost switchColor bold:226       # reines Gelb, 256-Farben
-/provider-cost switchColor bold:yellow    # fett hellgelb
-```
 
 ### Icons
 
