@@ -357,10 +357,23 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       case "refresh": {
         const ok = await refreshRates();
         render(ctx);
+
+        // Also re-resolve provider and costs, when a lookup is possible at all.
+        const lookupPossible =
+          settings.lookupUpstreamProvider &&
+          snapshot !== null &&
+          snapshot.provider === "openrouter" &&
+          snapshot.responseId !== null;
+
+        if (lookupPossible && snapshot) {
+          void resolveProvider(ctx, snapshot, { force: true });
+        }
+
         ctx.ui.notify(
-          ok
+          (ok
             ? "Wechselkurse neu geladen."
-            : "Wechselkurse konnten nicht geladen werden (nutze ggf. gecachte Werte oder '?').",
+            : "Wechselkurse konnten nicht geladen werden (nutze ggf. gecachte Werte oder '?').")
+            + (lookupPossible ? " Provider/Kosten werden neu ermittelt." : ""),
           ok ? "info" : "warning",
         );
         return;

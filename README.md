@@ -66,6 +66,10 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
   - **Modelwechsel** (anderes Request-Model als beim vorherigen Call) →
     erzwungener Refresh von Provider **und** Kosten, auch wenn der Cache noch
     frisch wäre. Ein Session-Restore mit gleichem Model ist kein Wechsel.
+  - **`/provider-cost refresh`** → lädt die Wechselkurse **und** erzwingt einen
+    Generation-API-Call (Provider + Kosten), sofern möglich (OpenRouter,
+    `lookupUpstreamProvider` aktiv, `responseId` vorhanden, kein Lookup läuft
+    bereits). Cache leeren vorher mit `/provider-cost lookup refresh`.
 
   Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel
   bei `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut
@@ -196,7 +200,7 @@ Gängige Alternativen für den Wechsel-Highlight:
 | `/provider-cost on` | Anzeige einschalten (persistiert) |
 | `/provider-cost off` | Anzeige ausschalten (persistiert) |
 | `/provider-cost toggle` | Umschalten (persistiert) |
-| `/provider-cost refresh` | Wechselkurse neu laden |
+| `/provider-cost refresh` | Wechselkurse neu laden **und** Provider/Kosten per Generation-API neu ermitteln (falls möglich) |
 | `/provider-cost currency <CODE>` | Anzeigewährung setzen (persistiert) |
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
 | `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert, s. [Farben](#farben)) |
