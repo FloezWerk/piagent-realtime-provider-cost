@@ -60,9 +60,20 @@ export interface RateSnapshot {
   subscription: boolean;
 }
 
-/** Provider id used as the display tag when no upstream provider is known. */
-export function displayProvider(snapshot: RateSnapshot): string {
-  return snapshot.upstreamProvider ?? snapshot.provider;
+/**
+ * Short provider tag for the status line, or null when it should be hidden.
+ *
+ * Only OpenRouter exposes an upstream/serving provider distinct from the routing
+ * provider; for every other provider the tag is omitted. If OpenRouter's serving
+ * provider has not been resolved (yet), the tag is omitted as well.
+ */
+export function upstreamTag(snapshot: RateSnapshot): string | null {
+  if (snapshot.provider !== "openrouter") return null;
+
+  const name = snapshot.upstreamProvider?.trim();
+  if (!name) return null;
+
+  return name.slice(0, 3);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

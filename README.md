@@ -4,13 +4,14 @@ Pi-Extension, die in der Statusleiste die **effektiven Tokenpreise (Input/Output
 pro 1 Mio. Tokens)** des Providers/Modells des **letzten API-Calls** anzeigt –
 direkt neben der Session-Kostensumme.
 
-Format: `(<provider>)<in>/<out>` – der Provider-Prefix sind die ersten 3 Zeichen
-des Providers. Bei OpenRouter wird dafür der **echte Serving-Provider** (z. B.
-`Fir` → Fireworks) aufgelöst, nicht das Routing-`openrouter`.
+Format: `<in>/<out>` plus optionales Provider-Tag **hinten**.
+Das Tag sind die ersten 3 Zeichen des Serving-Providers und wird **nur** bei
+OpenRouter angehängt, sobald der echte Provider aufgelöst ist (z. B. `Fir` →
+Fireworks). Sonst wird die Providerinfo ausgeblendet.
 
 ```
-(Fir)󰜷$2/󰜺$12      # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out), z. B. Fireworks
-(ope)in:$2/out:$12  # ASCII-Fallback, solange der Upstream unbekannt ist
+󰜷$2/󰜺$12 (Fir)    # Nerd Fonts (nf-fa-sign_in / nf-fa-sign_out), Upstream = Fireworks
+in:$2/out:$12       # ASCII, kein Tag (Upstream unbekannt oder kein OpenRouter)
 ```
 
 > Hinweis: Die Nerd-Font-Glyphen sind Private-Use-Codepoints (`U+F090`, `U+F08B`)
@@ -28,14 +29,16 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
   ```
 
   Dadurch sind Preistiers, Service-Tier-Multiplikatoren, providerabhängige Tarife
-  und OpenRouter-Routing automatisch enthalten. Der angezeigte Provider-Prefix
-  macht das überprüfbar.
+  und OpenRouter-Routing automatisch enthalten. Das Provider-Tag macht das
+  überprüfbar.
 - **Upstream-Provider (OpenRouter).** Pi liefert für erfolgreiche Calls keinen
   Serving-Provider. Die Extension fragt daher best-effort
   `GET https://openrouter.ai/api/v1/generation?id=<responseId>` ab und zeigt
   `data.provider_name` (z. B. `Fireworks`). Diese Daten sind erst einige Sekunden
-  nach dem Call verfügbar → Retry mit Backoff (1s/2s/4s/8s). Bis dahin steht das
-  Provider-Kürzel `(ope)`. Nur für `provider == "openrouter"`, abschaltbar via
+  nach dem Call verfügbar → Retry mit Backoff (1s/2s/4s/8s). Bis dahin und bei
+  fehlgeschlagenem Lookup wird **kein** Tag angezeigt (nicht `(ope)`). Das Tag
+  erscheint ausschließlich für `provider == "openrouter"`; bei allen anderen
+  Providern wird die Providerinfo ausgeblendet. Abschaltbar via
   `lookupUpstreamProvider` bzw. `/provider-cost lookup off`.
 - **Nur Input/Output** (kein Cache-Read/Write).
 - **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert

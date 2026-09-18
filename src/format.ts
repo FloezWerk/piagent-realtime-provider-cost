@@ -4,7 +4,7 @@
 
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
 import { getPriceIcons, type IconMode } from "./icons.ts";
-import { displayProvider, type RateSnapshot } from "./pricing.ts";
+import { upstreamTag, type RateSnapshot } from "./pricing.ts";
 
 /** Rounds to at most 4 decimals and trims trailing zeros for a compact look. */
 function formatNumber(value: number): string {
@@ -30,10 +30,10 @@ export function formatPrice(amountUsd: number | null, currency: CurrencyCode, ra
 /**
  * Builds the status text. Values are per 1M tokens.
  *
- * Format: `(<provider-prefix>)<in-icon><in>/<out-icon><out>`
- * e.g. `(ope)<in>$2/<out>$12` (Nerd) or `(ope)in:$2/out:$12` (ASCII).
- * The provider prefix is the first 3 chars of the provider id and makes it
- * verifiable that the shown prices belong to the provider of the last call.
+ * Format: `<in-icon><in>/<out-icon><out>` plus an optional trailing
+ * ` (<provider>)` tag, e.g. `<in>$2/<out>$12 (Fir)`.
+ * The tag is only appended for OpenRouter once its serving provider is known;
+ * otherwise it is omitted entirely.
  */
 export function composeStatus(
   snapshot: RateSnapshot,
@@ -44,7 +44,8 @@ export function composeStatus(
   const icons = getPriceIcons(iconMode);
   const input = formatPrice(snapshot.inputUsdPerMillion, currency, rate);
   const output = formatPrice(snapshot.outputUsdPerMillion, currency, rate);
-  const provider = displayProvider(snapshot).slice(0, 3);
+  const base = `${icons.input}${input}/${icons.output}${output}`;
 
-  return `(${provider})${icons.input}${input}/${icons.output}${output}`;
+  const tag = upstreamTag(snapshot);
+  return tag ? `${base} (${tag})` : base;
 }

@@ -29,9 +29,9 @@ import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
 import {
-  displayProvider,
   snapshotFromBranch,
   snapshotFromMessage,
+  upstreamTag,
   type ModelRegistryLike,
   type RateSnapshot,
 } from "../src/pricing.ts";
@@ -274,12 +274,15 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const active = snapshot
           ? `${snapshot.provider}/${snapshot.model}${snapshot.subscription ? " (subscription)" : ""}`
           : "noch kein API-Call";
-        const showProvider = snapshot
-          ? displayProvider(snapshot) + (snapshot.upstreamProvider ? " (upstream)" : "")
+        const tag = snapshot ? upstreamTag(snapshot) : null;
+        const providerInfo = snapshot
+          ? snapshot.provider === "openrouter"
+            ? `${snapshot.upstreamProvider ?? "unbekannt"} (upstream)`
+            : `${snapshot.provider} (kein Upstream-Tag)`
           : "-";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons} · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"}`
-          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Provider: ${showProvider}`,
+          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} · Provider: ${providerInfo}`,
           "info",
         );
         return;
