@@ -289,6 +289,13 @@ Auf **maximal 4 Nachkommastellen** gerundet, überflüssige Nullen entfernt
     erzwungener Refresh von Provider **und** Kosten, auch wenn der Cache noch
     frisch wäre. Ein Session-Restore mit gleichem Model ist kein Wechsel.
 
+  **Benachrichtigung.** Jede automatisch ausgelöste Generation-API-Anfrage wird
+  als Notify gemeldet, inkl. Grund in Klammern, z. B.
+  `Generation-API: Provider/Kosten für deepseek/… werden abgefragt (Cache Miss).`
+  Gründe: `Cache Miss`, `Cache abgelaufen (N Prompts)`, `Cache ohne Raten`,
+  `Cache veraltet`, `Modellwechsel`, `manueller Refresh` (`/provider-cost refresh`),
+  `Cache geleert` (`/provider-cost lookup refresh`).
+
 - **Vorschau beim Modellwechsel.** Beim Umschalten des Modells (`model_select`)
   werden sofort die **Katalogpreise** (`models-store.json`) des neuen Modells
   angezeigt. Der bedienende Provider steht zu diesem Zeitpunkt noch nicht fest

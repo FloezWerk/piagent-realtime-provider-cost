@@ -193,11 +193,15 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    * when the provider is not certain: with `allow_fallbacks` (OpenRouter
    * default) another provider may serve the request even though `only` lists
    * just one, but that is exactly what the cached generation result reflects.
+   *
+   * Every outgoing generation-API request is announced via `ctx.ui.notify`,
+   * including the reason (cache miss, expired entry, model switch, manual
+   * refresh, ...).
    */
   async function resolveProvider(
     ctx: ExtensionContext,
     target: RateSnapshot,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; reason?: string } = {},
   ): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
 
@@ -248,6 +252,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     // 3) Generation API.
     const responseId = target.responseId;
     if (!responseId || lookupsInFlight.has(key)) return;
+
+    const reason = options.reason ?? generationReason(key);
     lookupsInFlight.add(key);
 
     // Show an "update in progress" marker instead of hiding the provider info.
@@ -258,6 +264,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
       if (!apiKey) return;
 
+      notifyGenerationRequest(ctx, target, reason);
       const info = await lookupOpenRouterGeneration(responseId, { apiKey });
       if (!info) return;
 
@@ -287,6 +294,28 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         render(ctx);
       }
     }
+  }
+
+  /** Why a fresh generation-API request is necessary, for the notify text. */
+  function generationReason(key: string): string {
+    const entry = providerCache.peek(key);
+    if (!entry) return "Cache Miss";
+
+    const age = providerCache.promptCount() - entry.promptCount;
+    if (entry.source === "generation" && age >= settings.providerCacheRefreshPrompts) {
+      return `Cache abgelaufen (${age} Prompts)`;
+    }
+    if (entry.inputRate == null || entry.outputRate == null) return "Cache ohne Raten";
+    return "Cache veraltet";
+  }
+
+  /** Announces an outgoing generation-API request including its reason. */
+  function notifyGenerationRequest(ctx: ExtensionContext, target: RateSnapshot, reason: string): void {
+    if (!ctx.hasUI) return;
+    ctx.ui.notify(
+      `Generation-API: Provider/Kosten für ${target.requestModel} werden abgefragt (${reason}).`,
+      "info",
+    );
   }
 
   // Prompt counter for the prompt-count based cache invalidation.
@@ -337,7 +366,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     lastModel = next.requestModel;
 
     render(ctx);
-    void resolveProvider(ctx, next, { force: modelChanged });
+    void resolveProvider(ctx, next, { force: modelChanged, reason: modelChanged ? "Modellwechsel" : undefined });
   });
 
   pi.registerCommand(COMMAND_NAME, {
@@ -437,7 +466,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           snapshot.responseId !== null;
 
         if (lookupPossible && snapshot) {
-          void resolveProvider(ctx, snapshot, { force: true });
+          void resolveProvider(ctx, snapshot, { force: true, reason: "manueller Refresh" });
         }
 
         ctx.ui.notify(
@@ -546,7 +575,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
             snapshot.upstreamProvider = null;
             snapshot.providerSource = null;
             render(ctx);
-            void resolveProvider(ctx, snapshot);
+            void resolveProvider(ctx, snapshot, { reason: "Cache geleert" });
           }
           ctx.ui.notify("Provider-Cache geleert; Auflösung läuft.", "info");
           return;
