@@ -31,7 +31,8 @@ import { COLOR_NAMES, colorize, normalizeColorName } from "../src/color.ts";
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
-import { routingProviderFromModel } from "../src/model-routing.ts";
+import { clearPricingCache, getProviderPricing } from "../src/endpoint-pricing.ts";
+import { certainRoutingProvider } from "../src/model-routing.ts";
 import {
   snapshotFromBranch,
   snapshotFromMessage,
@@ -41,6 +42,7 @@ import {
   type RateSnapshot,
 } from "../src/pricing.ts";
 import { providerCache } from "../src/provider-cache.ts";
+import { deriveRealRates } from "../src/rates.ts";
 import {
   DEFAULT_SETTINGS,
   STATUS_KEY,
@@ -50,7 +52,7 @@ import {
   saveSettings,
   type ExtensionSettings,
 } from "../src/settings.ts";
-import { lookupOpenRouterProvider } from "../src/upstream.ts";
+import { lookupOpenRouterGeneration } from "../src/upstream.ts";
 
 const COMMAND_NAME = "provider-cost";
 
@@ -65,9 +67,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   let cacheLoaded = false;
 
   /**
-   * Set when a serving-provider switch was detected. The next render is drawn in
-   * `switchColor` (yellow by default) and every render after that again in the
-   * normal `color`, so the highlight is a one-shot hint.
+   * Set when a serving-provider switch was detected. Everything rendered for the
+   * current call is drawn in `switchColor` (yellow by default); the next call
+   * resets it, so the highlight is a one-shot hint.
    */
   let switchHighlight = false;
 
@@ -95,14 +97,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   function render(ctx: ExtensionContext): void {
     const text = currentText();
     if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
-    // Consume the highlight: the next render is back to the normal colour.
-    switchHighlight = false;
   }
 
-  /** True when the newly resolved provider differs from the previously known one. */
+  /**
+   * True when the newly resolved provider differs from the previously known one.
+   * Compared case-insensitively: routing constraints use lower-case ids
+   * (`fireworks`) while the generation API returns display names (`Fireworks`).
+   */
   function providerChanged(model: string, provider: string): boolean {
     const previous = providerCache.peek(model)?.provider;
-    return Boolean(previous) && previous !== provider;
+    if (!previous) return false;
+    return previous.trim().toLowerCase() !== provider.trim().toLowerCase();
   }
 
   function applyProvider(
@@ -119,41 +124,75 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     render(ctx);
   }
 
+  /** Applies rates derived from the real billed amount. */
+  function applyRates(
+    ctx: ExtensionContext,
+    target: RateSnapshot,
+    input: number,
+    output: number,
+  ): void {
+    if (snapshot !== target) return;
+
+    target.inputUsdPerMillion = input;
+    target.outputUsdPerMillion = output;
+    target.ratesFromApi = true;
+    render(ctx);
+  }
+
   /**
-   * Resolves the serving provider for the last call, preferring free sources:
-   * routing constraint -> cache -> generation API (cached afterwards).
+   * Resolves provider and real prices for the last call:
+   *   1. statically certain provider (single `only` pin, fallbacks disabled)
+   *   2. cached real rates (refreshed every N prompts)
+   *   3. generation API + provider price list for the actually billed amount
+   *
+   * Step 3 is mandatory whenever the provider is not certain: with
+   * `allow_fallbacks` (OpenRouter default) another provider may serve the
+   * request even though `only` lists just one.
    */
   async function resolveProvider(ctx: ExtensionContext, target: RateSnapshot): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
-    if (target.upstreamProvider) return;
 
+    const key = target.requestModel;
     await ensureCacheLoaded();
 
-    // 1) Static routing constraint (no API call).
+    // 1) Provider that is guaranteed by the routing constraint (no API call).
+    let certain: string | null = null;
     try {
-      const model = registry(ctx)?.find("openrouter", target.requestModel);
-      const routing = routingProviderFromModel(model);
-      if (routing) {
-        const changed = providerChanged(target.requestModel, routing);
-        providerCache.set(target.requestModel, routing, "routing");
-        if (changed) switchHighlight = true;
-        applyProvider(ctx, target, routing, "routing");
-        return;
-      }
+      certain = certainRoutingProvider(registry(ctx)?.find("openrouter", key));
     } catch {
-      // Ignore and fall through to the cache.
+      certain = null;
     }
 
-    // 2) Persistent cache (generation entries expire after N prompts).
-    const cached = providerCache.get(target.requestModel, settings.providerCacheRefreshPrompts);
-    if (cached) {
-      applyProvider(ctx, target, cached.provider, cached.source);
-      return;
+    // Prefer the (properly cased) name already known from the generation API.
+    const knownName = providerCache.peek(key)?.provider ?? null;
+    const certainName =
+      certain && knownName && knownName.trim().toLowerCase() === certain.trim().toLowerCase()
+        ? knownName
+        : certain;
+
+    if (certainName && target.upstreamProvider !== certainName) {
+      if (providerChanged(key, certainName)) switchHighlight = true;
+      applyProvider(ctx, target, certainName, "routing");
     }
 
-    // 3) Generation API (cached by model, at most one in-flight per model).
+    // 2) Cached real rates (from an earlier generation lookup).
+    const cached = providerCache.get(key, settings.providerCacheRefreshPrompts);
+    const cachedInput = cached?.inputRate;
+    const cachedOutput = cached?.outputRate;
+    const cachedRates =
+      cachedInput != null && cachedOutput != null
+        ? { input: cachedInput, output: cachedOutput }
+        : null;
+
+    if (cachedRates && cached) {
+      if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
+      applyRates(ctx, target, cachedRates.input, cachedRates.output);
+      // With a certain provider the cached rates are all we need.
+      if (certain) return;
+    }
+
+    // 3) Generation API.
     const responseId = target.responseId;
-    const key = target.requestModel;
     if (!responseId || lookupsInFlight.has(key)) return;
     lookupsInFlight.add(key);
 
@@ -165,12 +204,26 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
       if (!apiKey) return;
 
-      const name = await lookupOpenRouterProvider(responseId, { apiKey });
-      if (!name) return;
+      const info = await lookupOpenRouterGeneration(responseId, { apiKey });
+      if (!info) return;
 
-      if (providerChanged(key, name)) switchHighlight = true;
-      providerCache.set(key, name, "generation");
-      applyProvider(ctx, target, name, "generation");
+      const provider =
+        info.providerName ?? target.upstreamProvider ?? cached?.provider ?? null;
+
+      let rates: { input: number; output: number } | null = null;
+      if (info.providerName && info.totalCost != null) {
+        const pricing = (await getProviderPricing(key, apiKey))?.get(info.providerName) ?? null;
+        const real = deriveRealRates(info.totalCost, target.tokens, pricing);
+        if (real) rates = { input: real.input, output: real.output };
+      }
+
+      if (provider) {
+        if (providerChanged(key, provider)) switchHighlight = true;
+        providerCache.set(key, provider, "generation", rates);
+        applyProvider(ctx, target, provider, "generation");
+      }
+
+      if (rates) applyRates(ctx, target, rates.input, rates.output);
     } catch {
       // Best-effort; without a provider the tag stays hidden.
     } finally {
@@ -194,6 +247,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (settings.currency !== "USD") {
       await ensureRatesLoaded();
     }
+    switchHighlight = false;
     snapshot = snapshotFromBranch(ctx.sessionManager.getBranch(), registry(ctx));
     render(ctx);
     if (snapshot) void resolveProvider(ctx, snapshot);
@@ -205,6 +259,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     const next = snapshotFromMessage(event.message, registry(ctx));
     if (!next) return;
 
+    // New call: any previous provider-switch highlight ends here.
+    switchHighlight = false;
     snapshot = next;
     render(ctx);
     void resolveProvider(ctx, next);
@@ -340,6 +396,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         if (mode === "refresh") {
           await ensureCacheLoaded();
           providerCache.clear();
+          clearPricingCache();
           if (snapshot) {
             snapshot.upstreamProvider = null;
             snapshot.providerSource = null;
@@ -380,12 +437,15 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const prompts = providerCache.promptCount();
         const cacheInfo = cached
           ? `cache:${cached.source}, age:${prompts - cached.promptCount} prompts`
+            + (cached.inputRate != null ? `, rates:api` : "")
           : "cache:-";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
           + ` · Farben: ${settings.color}/${settings.switchColor}`
           + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
-          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source}) · ${cacheInfo} · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
+          + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source})`
+          + ` · Preise: ${snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
+          + ` · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
           "info",
         );
         return;

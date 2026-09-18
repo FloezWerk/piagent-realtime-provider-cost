@@ -24,6 +24,9 @@ export interface ProviderCacheEntry {
   fetchedAt: number;
   /** Prompt counter value at the time the entry was stored. */
   promptCount: number;
+  /** Real effective rates (USD per 1M tokens) when known. */
+  inputRate?: number;
+  outputRate?: number;
 }
 
 interface CacheFile {
@@ -72,11 +75,15 @@ export class ProviderCache {
         if (source !== "routing" && source !== "generation") continue;
         if (typeof fetchedAt !== "number") continue;
 
+        const inputRate = value.inputRate;
+        const outputRate = value.outputRate;
         this.entries.set(model, {
           provider: provider.trim(),
           source,
           fetchedAt,
           promptCount: typeof promptCount === "number" && Number.isFinite(promptCount) ? promptCount : 0,
+          ...(typeof inputRate === "number" && Number.isFinite(inputRate) ? { inputRate } : {}),
+          ...(typeof outputRate === "number" && Number.isFinite(outputRate) ? { outputRate } : {}),
         });
       }
     } catch {
@@ -113,12 +120,18 @@ export class ProviderCache {
     return this.entries.get(model) ?? null;
   }
 
-  set(model: string, provider: string, source: ProviderSource): void {
+  set(
+    model: string,
+    provider: string,
+    source: ProviderSource,
+    rates?: { input: number; output: number } | null,
+  ): void {
     this.entries.set(model, {
       provider,
       source,
       fetchedAt: Date.now(),
       promptCount: this.prompts,
+      ...(rates ? { inputRate: rates.input, outputRate: rates.output } : {}),
     });
     void this.persist();
   }

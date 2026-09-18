@@ -137,6 +137,8 @@ function ensureRatesRefreshing(): void {
  * Returns the units-per-USD rate for a currency, or null when it is still
  * unknown (the caller then renders `?`). Kicks off a background refresh.
  */
+export type { CurrencyCode };
+
 export function getRate(currency: CurrencyCode): number | null {
   if (currency === "USD") return 1;
 

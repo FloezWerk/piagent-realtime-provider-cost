@@ -25,34 +25,55 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
 ## Funktionsweise
 
-- **Effektiver Preis statt Katalogpreis.** Der Preis wird aus dem gemeldeten
-  `usage.cost.*` der letzten Assistant-Nachricht abgeleitet:
+- **Echte Abrechnung statt Katalogpreis.** Quelle der Zahlen ist OpenRouter:
+  die **Generation-API** liefert `total_cost` (tatsächlich berechnet) und die
+  Token-Zahlen, die **Endpoint-Preise** liefern das Verhältnis der Buckets
+  (Input/Output/Cache) des tatsächlich bedienenden Providers:
 
   ```
-  Preis(USD/Mtok) = usage.cost.<bucket> / usage.<bucket> * 1e6
+  modelled = prompt*in + completion*out + cacheRead*cacheReadTokens   (aus Endpoint-Preisen)
+  factor   = total_cost / modelled          # Discounts, Peak-Overrides, Preisänderungen
+  in-Rate  = prompt * factor                (USD pro 1 Mio. Tokens)
+  out-Rate = completion * factor
   ```
 
-- **Provider-Auflösung ohne Call pro Response.** Reihenfolge:
+  Der `factor` sorgt dafür, dass die Anzeige der Rechnung entspricht, auch wenn
+  Endpoint-Preise (noch) nicht exakt dem abgerechneten Satz entsprechen.
+  Solange keine API-Daten vorliegen, wird die Näherung aus `usage.cost.*`
+  (Pi-Katalog) angezeigt.
+
+- **Auflösung.** Reihenfolge:
   1. **Routing-Constraint** aus `models.json`
-     (`providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`,
-     genau ein Provider) → Provider statisch bekannt, **0 API-Calls**.
-  2. **Persistenter Cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
-     Key = Request-Model. `routing`-Einträge laufen nie ab; `generation`-Einträge
-     werden nach `providerCacheRefreshPrompts` **Prompts** (nicht nach Zeit)
-     ungültig.
+     (`providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`)
+     – gilt nur als *sicher*, wenn `allow_fallbacks: false` gesetzt ist. Bei
+     `allow_fallbacks: true` (OpenRouter-Default) kann ein anderer Provider
+     bedienen, auch wenn `only` genau einen nennt.
+  2. **Persistenter Raten-Cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
+     Key = Request-Model. Einträge werden nach `providerCacheRefreshPrompts`
+     **Prompts** (nicht nach Zeit) ungültig.
   3. **Generation-API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
-     – nur bei Cache-Miss/-Ablauf, max. 1 Call pro Model gleichzeitig. Die Daten
-     sind erst einige Sekunden nach dem Call verfügbar → Retry mit Backoff
-     (1s/2s/4s/8s). Ergebnis wird gecacht. Währenddessen wird statt des
-     Provider-Tags ein **„update in progress"-Icon** (`⟳`) angezeigt.
+     – liefert Provider **und** echten Betrag, max. 1 Call pro Model gleichzeitig.
+     Daten sind erst einige Sekunden nach dem Call verfügbar → Retry mit Backoff
+     (1s/2s/4s/8s). Währenddessen wird statt des Provider-Tags ein
+     **„update in progress"-Icon** (`⟳`) angezeigt.
+
+  **Wann wird die API aufgerufen?**
+  - Provider *sicher* (ein `only`-Eintrag **und** `allow_fallbacks: false`) →
+    1× beim ersten Call, danach nur alle N Prompts (Raten-Cache).
+  - Provider *nicht sicher* (`allow_fallbacks: true` oder kein `only`) →
+    **pro Response**, weil nur der tatsächliche Provider zählt.
 
   Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel
   bei `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut
   nach dem 10. weiteren Prompt.
 - **Invalidierung per Aufruf-Zähler:** Es gibt kein Signal, das einen
   Providerwechsel pro Response verrät (Model-Slug, `system_fingerprint`,
-  `native_finish_reason`, `service_tier` sind provider-unabhängig). Der Provider
-  ist kurzfristig stabil, daher wird nach N Prompts neu aufgelöst.
+  `native_finish_reason`, `service_tier` sind provider-unabhängig). Bei sicherem
+  Provider ist dieser kurzfristig stabil, daher genügt die Auflösung alle N
+  Prompts; sonst wird pro Response gefragt.
+- **Zwei Caches:** `provider-cache.json` (Provider + Raten pro Model) und
+  `endpoint-pricing.json` (Provider-Preislisten, 24 h). `/provider-cost lookup refresh`
+  leert beide.
 - **Kein Batch-Endpoint:** OpenRouter bietet weder Mehrfach-IDs noch eine
   Generations-Liste; `/api/v1/activity` erfordert einen Management-Key.
 - **Während des Streamings** bleibt der zuletzt bekannte Wert stehen; aktualisiert
@@ -147,7 +168,7 @@ Nach Änderungen in einer laufenden Session: `/reload`.
 | `/provider-cost icons <auto\|nerd\|ascii>` | Icon-Modus setzen (persistiert) |
 | `/provider-cost color <name>` | Standardfarbe setzen (persistiert) |
 | `/provider-cost switchColor <name>` | Wechselfarbe (Providerwechsel) setzen (persistiert) |
-| `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung; `refresh` leert den Provider-Cache und löst neu auf |
+| `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
 
 ## Konfiguration
 

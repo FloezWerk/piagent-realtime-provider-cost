@@ -66,6 +66,10 @@ export interface RateSnapshot {
   providerSource: ProviderSource | null;
   /** OpenRouter provider is currently being resolved via the generation API. */
   providerPending: boolean;
+  /** Token buckets of the call, needed to split the real billed amount. */
+  tokens: { input: number; output: number; cacheRead: number };
+  /** Rates come from the generation API + provider prices instead of the catalogue. */
+  ratesFromApi: boolean;
   /** Model is subscription-backed -> the whole status item is hidden. */
   subscription: boolean;
 }
@@ -156,6 +160,12 @@ export function snapshotFromMessage(
     upstreamProvider: null,
     providerSource: null,
     providerPending: false,
+    tokens: {
+      input: message.usage.input,
+      output: message.usage.output,
+      cacheRead: message.usage.cacheRead,
+    },
+    ratesFromApi: false,
     subscription: isSubscription(message.provider, requestModel, registry),
   };
 }
