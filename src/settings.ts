@@ -72,6 +72,8 @@ export interface ExtensionSettings {
   deviationStyle: DeviationStyle;
   /** Percentage thresholds for the deviation colours (green/yellow/orange). */
   deviationThresholds: DeviationThresholds;
+  /** Announce every automatic generation-API request (with reason) via notify. */
+  notifyGenerationLookup: boolean;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -86,6 +88,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   // Plain colour on the arrows; the numbers stay in the base colour.
   deviationStyle: "plain",
   deviationThresholds: DEFAULT_DEVIATION_THRESHOLDS,
+  // Off by default; the lookup is frequent and the notify would be noisy.
+  notifyGenerationLookup: false,
 };
 
 /** Validates the threshold object, filling in defaults for missing/invalid entries. */
@@ -159,6 +163,10 @@ export async function loadSettings(): Promise<ExtensionSettings> {
     deviationStyle:
       normalizeDeviationStyle(section.deviationStyle) ?? DEFAULT_SETTINGS.deviationStyle,
     deviationThresholds: normalizeDeviationThresholds(section.deviationThresholds),
+    notifyGenerationLookup:
+      typeof section.notifyGenerationLookup === "boolean"
+        ? section.notifyGenerationLookup
+        : DEFAULT_SETTINGS.notifyGenerationLookup,
   };
 }
 

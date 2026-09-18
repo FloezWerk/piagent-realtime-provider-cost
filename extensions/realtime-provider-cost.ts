@@ -311,7 +311,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   /** Announces an outgoing generation-API request including its reason. */
   function notifyGenerationRequest(ctx: ExtensionContext, target: RateSnapshot, reason: string): void {
-    if (!ctx.hasUI) return;
+    if (!settings.notifyGenerationLookup || !ctx.hasUI) return;
     ctx.ui.notify(
       `Generation-API: Provider/Kosten für ${target.requestModel} werden abgefragt (${reason}).`,
       "info",
@@ -372,7 +372,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   pi.registerCommand(COMMAND_NAME, {
     description: "Effektive Provider-Tokenpreise anzeigen/ein-/ausschalten",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style", "threshold"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "notify", "color", "switchColor", "style", "threshold"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
       const value = prefix.trimStart().toLowerCase();
 
@@ -422,6 +422,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         return ["on", "off", "refresh"]
           .filter((entry) => entry.startsWith(mode))
           .map((entry) => ({ value: `lookup ${entry}`, label: entry }));
+      }
+
+      if (value.startsWith("notify ")) {
+        const mode = value.split(/\s+/)[1] ?? "";
+        return ["on", "off"]
+          .filter((entry) => entry.startsWith(mode))
+          .map((entry) => ({ value: `notify ${entry}`, label: entry }));
       }
 
       return options
@@ -565,6 +572,20 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         ctx.ui.notify(`${isSwitch ? "Wechselfarbe" : "Farbe"} auf ${name} gesetzt.`, "info");
         return;
       }
+      case "notify": {
+        const mode = rest[0]?.toLowerCase();
+        if (mode !== "on" && mode !== "off") {
+          ctx.ui.notify(`Erwartet: /${COMMAND_NAME} notify on|off`, "warning");
+          return;
+        }
+        settings = { ...settings, notifyGenerationLookup: mode === "on" };
+        await saveSettings({ notifyGenerationLookup: settings.notifyGenerationLookup });
+        ctx.ui.notify(
+          `Generation-API-Benachrichtigung ${settings.notifyGenerationLookup ? "aktiviert" : "deaktiviert"}.`,
+          "info",
+        );
+        return;
+      }
       case "lookup": {
         const mode = rest[0]?.toLowerCase();
         if (mode === "refresh") {
@@ -620,6 +641,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           + `-${settings.deviationThresholds.green}/${settings.deviationThresholds.yellow}/`
           + `${settings.deviationThresholds.orange}%)`
           + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
+          + ` · Notify: ${settings.notifyGenerationLookup ? "on" : "off"}`
           + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source})`
           + ` · Preise: ${snapshot?.cataloguePreview ? "katalog (Vorschau)" : snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
           + ` · Prompts: ${prompts} · Cache-Einträge: ${providerCache.size()}`,
@@ -644,6 +666,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
       + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...|reverse:...>`
       + `|switchColor <...>|style <${DEVIATION_STYLES.join("|")}>`
-      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>`;
+      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>|notify <on|off>`;
   }
 }

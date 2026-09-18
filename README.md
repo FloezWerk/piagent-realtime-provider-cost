@@ -193,6 +193,7 @@ Gängige Alternativen für den Wechsel-Highlight:
 | `/provider-cost style <plain\|bold\|reverse>` | Attribute der Abweichungsfarbe am In/Out-Icon (persistiert; Default `plain`) |
 | `/provider-cost threshold <green\|yellow\|orange> <pct>` | Abweichungs-Schwelle in Prozent setzen (persistiert; Defaults 10/10/20) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung ein/aus; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
+| `/provider-cost notify <on\|off>` | Benachrichtigung bei jeder automatischen Generation-API-Anfrage (persistiert; Default `off`) |
 
 ## Konfiguration
 
@@ -211,7 +212,8 @@ Befehl setzbar.
     "deviationStyle": "plain",
     "deviationThresholds": { "green": 10, "yellow": 10, "orange": 20 },
     "lookupUpstreamProvider": true,
-    "providerCacheRefreshPrompts": 10
+    "providerCacheRefreshPrompts": 10,
+    "notifyGenerationLookup": false
   }
 }
 ```
@@ -227,6 +229,7 @@ Befehl setzbar.
 | `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Prozent-Schwellen: unter `-green` grün, bis `yellow` gelb, bis `orange` orange, darüber rot (alle ≥ 0) |
 | `lookupUpstreamProvider` | `true` | Provider/Kosten-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert; `0` = immer neu auflösen |
+| `notifyGenerationLookup` | `false` | Notify vor jeder automatischen Generation-API-Anfrage (mit Grund) |
 
 ### Icons
 
@@ -289,8 +292,9 @@ Auf **maximal 4 Nachkommastellen** gerundet, überflüssige Nullen entfernt
     erzwungener Refresh von Provider **und** Kosten, auch wenn der Cache noch
     frisch wäre. Ein Session-Restore mit gleichem Model ist kein Wechsel.
 
-  **Benachrichtigung.** Jede automatisch ausgelöste Generation-API-Anfrage wird
-  als Notify gemeldet, inkl. Grund in Klammern, z. B.
+  **Benachrichtigung.** (Optional, Default **aus**: Setting `notifyGenerationLookup`
+  bzw. `/provider-cost notify on`.) Jede automatisch ausgelöste
+  Generation-API-Anfrage wird als Notify gemeldet, inkl. Grund in Klammern, z. B.
   `Generation-API: Provider/Kosten für deepseek/… werden abgefragt (Cache Miss).`
   Gründe: `Cache Miss`, `Cache abgelaufen (N Prompts)`, `Cache ohne Raten`,
   `Cache veraltet`, `Modellwechsel`, `manueller Refresh` (`/provider-cost refresh`),
