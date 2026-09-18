@@ -75,6 +75,9 @@ Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
     1× beim ersten Call, danach nur alle N Prompts (Raten-Cache).
   - Provider *nicht sicher* (`allow_fallbacks: true` oder kein `only`) →
     **pro Response**, weil nur der tatsächliche Provider zählt.
+  - **Modelwechsel** (anderes Request-Model als beim vorherigen Call) →
+    erzwungener Refresh von Provider **und** Kosten, auch wenn der Cache noch
+    frisch wäre. Ein Session-Restore mit gleichem Model ist kein Wechsel.
 
   Der Prompt-Zähler ist im Cache persistiert und überlebt Neustarts. Beispiel
   bei `providerCacheRefreshPrompts: 10`: Auflösung beim 1. Prompt, dann erneut

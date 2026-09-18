@@ -67,6 +67,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   let cacheLoaded = false;
 
   /**
+   * Model of the previously handled/restored call. A change means the user
+   * switched models - then provider and costs are looked up fresh instead of
+   * being served from the cache.
+   */
+  let lastModel: string | null = null;
+
+  /**
    * Set when a serving-provider switch was detected. Everything rendered for the
    * current call is drawn in `switchColor` (yellow by default); the next call
    * resets it, so the highlight is a one-shot hint.
@@ -149,8 +156,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    * `allow_fallbacks` (OpenRouter default) another provider may serve the
    * request even though `only` lists just one.
    */
-  async function resolveProvider(ctx: ExtensionContext, target: RateSnapshot): Promise<void> {
+  async function resolveProvider(
+    ctx: ExtensionContext,
+    target: RateSnapshot,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
+
+    const force = options.force === true;
 
     const key = target.requestModel;
     await ensureCacheLoaded();
@@ -187,8 +200,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (cachedRates && cached) {
       if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
       applyRates(ctx, target, cachedRates.input, cachedRates.output);
-      // With a certain provider the cached rates are all we need.
-      if (certain) return;
+      // With a certain provider the cached rates are all we need - unless the
+      // model just changed, which always forces a fresh lookup.
+      if (certain && !force) return;
     }
 
     // 3) Generation API.
@@ -249,6 +263,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     }
     switchHighlight = false;
     snapshot = snapshotFromBranch(ctx.sessionManager.getBranch(), registry(ctx));
+    // Restoring a session is not a model switch -> no forced refresh.
+    lastModel = snapshot?.requestModel ?? null;
     render(ctx);
     if (snapshot) void resolveProvider(ctx, snapshot);
   });
@@ -262,8 +278,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     // New call: any previous provider-switch highlight ends here.
     switchHighlight = false;
     snapshot = next;
+
+    // Switching models must not reuse the cached provider/costs of the old one.
+    const modelChanged = lastModel !== null && next.requestModel !== lastModel;
+    lastModel = next.requestModel;
+
     render(ctx);
-    void resolveProvider(ctx, next);
+    void resolveProvider(ctx, next, { force: modelChanged });
   });
 
   pi.registerCommand(COMMAND_NAME, {
