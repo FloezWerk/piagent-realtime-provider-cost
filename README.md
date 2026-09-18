@@ -19,6 +19,21 @@ in:$2/out:$12     # ASCII-Modus (icons: ascii)
 
 Alle Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
+## Inhalt
+
+- [Installation](#installation)
+- [Einrichtung](#einrichtung)
+  - [Ohne pi-powerline-footer](#ohne-pi-powerline-footer)
+  - [Mit pi-powerline-footer (empfohlen)](#mit-pi-powerline-footer-empfohlen)
+- [Farben](#farben)
+- [Befehle](#befehle)
+- [Konfiguration](#konfiguration)
+  - [Icons](#icons)
+  - [Rundung](#rundung)
+- [Funktionsweise](#funktionsweise)
+- [Hintergrund: warum der Umweg über die Generation-API?](#hintergrund-warum-der-umweg-über-die-generation-api)
+- [Abhängigkeiten](#abhängigkeiten)
+
 ## Installation
 
 ```bash
