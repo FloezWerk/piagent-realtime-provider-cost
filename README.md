@@ -15,8 +15,11 @@ in:$2/out:$12     # ASCII-Modus (icons: ascii)
 ↑$1.5/↓$6 (?)     # Modell gerade gewechselt: Katalogpreise, Provider noch unbekannt
 ```
 
-**Farbe:** normal **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
-(`bold:#ffd700`), danach wieder weiß (Details: [Farben](#farben)).
+**Farbe:** die In-/Out-Zahlen sind **farblich nach der Abweichung zum
+Katalogpreis** eingefärbt (grün/gelb/orange/rot, s. [Farben](#farben)); Icons und
+Provider-Tag bleiben in der Standardfarbe (**weiß**). Bei erkanntem
+**Providerwechsel** wird der **ganze** Eintrag für einen Prompt **fett gold**
+(`bold:#ffd700`) – die Abweichungsfarben gelten dann nicht.
 
 Alle Werte sind **pro 1 Mio. Tokens** in der konfigurierten Währung.
 
@@ -104,15 +107,35 @@ Explizite Positionierung direkt neben `cost` via `powerline.layout`:
 
 ## Farben
 
-Standardmäßig **weiß**; bei erkanntem **Providerwechsel** kurz **fett gold**
-(`bold:#ffd700`), danach wieder weiß. Setzbar über `/provider-cost color …` bzw.
-`/provider-cost switchColor …` oder die Settings `color` / `switchColor`.
+Es gibt zwei Ebenen:
+
+1. **Abweichungs-Farbcodierung der In-/Out-Zahlen.** Die effektive Rate wird mit
+dem **Katalogpreis** (`models-store.json`) des Modells verglichen; die Farbe
+zeigt die Abweichung. Icons und Provider-Tag bleiben in der Standardfarbe.
+
+   | Abweichung zum Katalogpreis | Farbe |
+   | --- | --- |
+   | mehr als 10 % **billiger** (< −10 %) | **grün** |
+   | bis 10 % teurer (0 % < x ≤ 10 %) | **gelb** |
+   | 10–20 % teurer (> 10 % und ≤ 20 %) | **orange** (256-Farbe 208) |
+   | mehr als 20 % teurer (> 20 %) | **rot** |
+   | sonst (0 % bzw. ≤ 10 % billiger, oder kein Katalogpreis bekannt) | Standardfarbe |
+
+   > In und Out werden **einzeln** gefärbt (z. B. Input grün, Output rot).
+   > Liegt kein effektiver Preis oder kein Katalogpreis vor (z. B. `?`), bleibt
+   > die Standardfarbe.
+
+2. **Standard-/Wechselfarbe** für alles Übrige. Standardmäßig **weiß**; bei
+erkanntem **Providerwechsel** wird der **gesamte** Eintrag für einen Prompt
+**fett gold** (`bold:#ffd700`) und überschreibt dabei die Abweichungsfarben.
+Setzbar über `/provider-cost color …` bzw. `/provider-cost switchColor …` oder die
+Settings `color` / `switchColor`.
 
 Farbangaben sind frei wählbar:
 
 | Syntax | Beispiel | Ergebnis |
 | --- | --- | --- |
-| Palette | `white`, `yellow`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/91/92/96/95/94/90 |
+| Palette | `white`, `yellow`, `orange`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/38;5;208/91/92/96/95/94/90 |
 | Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
 | 256-Farben | `226` (0-255) | `38;5;n` |
 | Fett | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<farbe>` |

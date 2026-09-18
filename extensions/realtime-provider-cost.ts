@@ -30,11 +30,12 @@ import type {
 
 import { COLOR_NAMES, colorize, normalizeColorSpec } from "../src/color.ts";
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
-import { composeStatus } from "../src/format.ts";
+import { composeStatus, type PriceColors } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
 import { clearPricingCache, getProviderPricing } from "../src/endpoint-pricing.ts";
 import { certainRoutingProvider } from "../src/model-routing.ts";
 import {
+  deviationColorSpec,
   snapshotFromBranch,
   snapshotFromMessage,
   snapshotFromModel,
@@ -99,8 +100,22 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   function currentText(): string | null {
     if (!settings.enabled || !snapshot || snapshot.subscription) return null;
 
-    const text = composeStatus(snapshot, settings.currency, getRate(settings.currency), settings.icons);
-    return colorize(text, switchHighlight ? settings.switchColor : settings.color);
+    const icons = settings.icons;
+    const rate = getRate(settings.currency);
+
+    // A detected provider switch overrides everything: the whole item is drawn
+    // in the switch colour, so the deviation colours do not apply to that prompt.
+    if (switchHighlight) {
+      return colorize(composeStatus(snapshot, settings.currency, rate, icons), settings.switchColor);
+    }
+
+    // Deviation of the effective price from the catalogue price -> colour per number.
+    const colors: PriceColors = {
+      base: settings.color,
+      input: deviationColorSpec(snapshot.inputUsdPerMillion, snapshot.catalogueInputUsdPerMillion),
+      output: deviationColorSpec(snapshot.outputUsdPerMillion, snapshot.catalogueOutputUsdPerMillion),
+    };
+    return composeStatus(snapshot, settings.currency, rate, icons, colors);
   }
 
   function render(ctx: ExtensionContext): void {

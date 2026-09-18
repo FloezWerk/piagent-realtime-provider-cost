@@ -49,6 +49,14 @@ export interface RateSnapshot {
   inputUsdPerMillion: number | null;
   /** Effective output price in USD per 1M tokens, null when not computable. */
   outputUsdPerMillion: number | null;
+  /**
+   * Catalogue input price in USD per 1M tokens (`models-store.json`), used as
+   * the reference for the deviation colouring. Null when unknown (then the
+   * default colour is kept).
+   */
+  catalogueInputUsdPerMillion: number | null;
+  /** Catalogue output price in USD per 1M tokens, see `catalogueInputUsdPerMillion`. */
+  catalogueOutputUsdPerMillion: number | null;
   /** Provider id as configured in Pi (e.g. "openrouter"). */
   provider: string;
   /** Response model id (may be the concrete routed slug). */
@@ -107,6 +115,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Base catalogue rates (USD per 1M tokens) of a registry model entry. */
+function catalogueRates(model: unknown): { input: number | null; output: number | null } {
+  if (!isRecord(model)) return { input: null, output: null };
+
+  const cost = isRecord(model.cost) ? model.cost : {};
+  return {
+    input: typeof cost.input === "number" ? cost.input : null,
+    output: typeof cost.output === "number" ? cost.output : null,
+  };
+}
+
+/**
+ * Deviation of the effective price from the catalogue price, in percent
+ * (negative = cheaper than the catalogue).
+ */
+function deviationPercent(effectiveUsd: number | null, catalogueUsd: number | null): number | null {
+  if (effectiveUsd === null || catalogueUsd === null) return null;
+  if (!Number.isFinite(effectiveUsd) || !Number.isFinite(catalogueUsd)) return null;
+  if (!(catalogueUsd > 0)) return null;
+
+  return ((effectiveUsd - catalogueUsd) / catalogueUsd) * 100;
+}
+
+/** Colour spec for a deviation, or null when the default colour should apply. */
+export function deviationColorSpec(
+  effectiveUsd: number | null,
+  catalogueUsd: number | null,
+): string | null {
+  const deviation = deviationPercent(effectiveUsd, catalogueUsd);
+  if (deviation === null) return null;
+
+  if (deviation < -10) return "green"; // more than 10% below catalogue
+  if (deviation > 20) return "red"; // more than 20% above catalogue
+  if (deviation > 10) return "orange"; // 10-20% above catalogue
+  if (deviation > 0) return "yellow"; // up to 10% above catalogue
+  return null; // 0% or within 10% below -> default colour
+}
+
 function isAssistantLike(value: unknown): value is AssistantLike {
   if (!isRecord(value) || value.role !== "assistant") return false;
   if (typeof value.provider !== "string" || typeof value.model !== "string") return false;
@@ -156,9 +202,19 @@ export function snapshotFromMessage(
 
   const requestModel = message.model;
   const modelId = message.responseModel ?? message.model;
+
+  let catalogue: { input: number | null; output: number | null } = { input: null, output: null };
+  try {
+    catalogue = catalogueRates(registry?.find(message.provider, requestModel));
+  } catch {
+    catalogue = { input: null, output: null };
+  }
+
   return {
     inputUsdPerMillion: rate(message.usage.cost.input, message.usage.input),
     outputUsdPerMillion: rate(message.usage.cost.output, message.usage.output),
+    catalogueInputUsdPerMillion: catalogue.input,
+    catalogueOutputUsdPerMillion: catalogue.output,
     provider: message.provider,
     model: modelId,
     requestModel,
@@ -203,6 +259,8 @@ export function snapshotFromModel(
   return {
     inputUsdPerMillion: input,
     outputUsdPerMillion: output,
+    catalogueInputUsdPerMillion: input,
+    catalogueOutputUsdPerMillion: output,
     provider,
     model: id,
     requestModel: id,

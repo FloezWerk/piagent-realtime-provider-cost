@@ -2,9 +2,24 @@
  * Compact status-bar rendering for the `realtime-provider-cost` extension.
  */
 
+import { colorize } from "./color.ts";
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
 import { getPendingIcon, getPriceIcons, type IconMode } from "./icons.ts";
 import { upstreamTag, type RateSnapshot } from "./pricing.ts";
+
+/**
+ * Per-segment colour specs. `input`/`output` colour only the price numbers and
+ * fall back to `base` when unset; `base` colours the icons and the provider tag.
+ */
+export interface PriceColors {
+  base?: string;
+  input?: string | null;
+  output?: string | null;
+}
+
+function paint(text: string, spec: string | null | undefined): string {
+  return spec ? colorize(text, spec) : text;
+}
 
 /** Rounds to at most 4 decimals and trims trailing zeros for a compact look. */
 function formatNumber(value: number): string {
@@ -42,16 +57,17 @@ export function composeStatus(
   currency: CurrencyCode,
   rate: number | null,
   iconMode: IconMode = "auto",
+  colors: PriceColors = {},
 ): string {
   const icons = getPriceIcons(iconMode);
-  const input = formatPrice(snapshot.inputUsdPerMillion, currency, rate);
-  const output = formatPrice(snapshot.outputUsdPerMillion, currency, rate);
-  const base = `${icons.input}${input}/${icons.output}${output}`;
+  const input = paint(formatPrice(snapshot.inputUsdPerMillion, currency, rate), colors.input ?? colors.base);
+  const output = paint(formatPrice(snapshot.outputUsdPerMillion, currency, rate), colors.output ?? colors.base);
+  const base = `${paint(icons.input, colors.base)}${input}/${paint(icons.output, colors.base)}${output}`;
 
   const tag = snapshot.providerPending
     ? getPendingIcon(iconMode)
     : upstreamTag(snapshot) ?? previewTag(snapshot);
-  return tag ? `${base} (${tag})` : base;
+  return tag ? `${base} ${paint(`(${tag})`, colors.base)}` : base;
 }
 
 /**

@@ -6,7 +6,7 @@
  * after a detected serving-provider switch.
  *
  * Supported colour specs (`color` / `switchColor`):
- *   - palette names:  white, yellow, red, green, cyan, magenta, blue, gray, none
+ *   - palette names:  white, yellow, orange, red, green, cyan, magenta, blue, gray, none
  *   - hex:            #ffd700, #fd0        (truecolor)
  *   - 256-colour:     226                  (0-255)
  *   - `bold:` prefix: bold:yellow, bold:#ffd700, bold:226
@@ -19,6 +19,7 @@
 export const COLOR_NAMES = [
   "white",
   "yellow",
+  "orange",
   "red",
   "green",
   "cyan",
@@ -32,16 +33,20 @@ export type ColorName = (typeof COLOR_NAMES)[number];
 
 export const RESET = "\u001b[0m";
 
-/** Bright variants: `white` is bright white, `yellow` bright yellow. */
-const SGR: Record<Exclude<ColorName, "none">, number> = {
-  white: 97,
-  yellow: 93,
-  red: 91,
-  green: 92,
-  cyan: 96,
-  magenta: 95,
-  blue: 94,
-  gray: 90,
+/**
+ * SGR parameter lists per palette name. Bright variants are used for the basic
+ * colours; `orange` has no ANSI palette entry and uses 256-colour 208.
+ */
+const SGR: Record<Exclude<ColorName, "none">, string> = {
+  white: "97",
+  yellow: "93",
+  orange: "38;5;208",
+  red: "91",
+  green: "92",
+  cyan: "96",
+  magenta: "95",
+  blue: "94",
+  gray: "90",
 };
 
 interface ResolvedColor {
@@ -80,7 +85,7 @@ export function resolveColorSpec(spec: string): ResolvedColor | null {
   if (lower === "none") return bold ? null : { sgr: "", none: true };
 
   const name = SGR[lower as Exclude<ColorName, "none">];
-  if (typeof name === "number") return withBold(String(name), bold);
+  if (typeof name === "string") return withBold(name, bold);
 
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(rest);
   if (hex) return withBold(`38;2;${hexToRgb(hex[1]).join(";")}`, bold);
