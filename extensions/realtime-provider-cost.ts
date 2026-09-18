@@ -36,6 +36,7 @@ import { clearPricingCache, getProviderPricing } from "../src/endpoint-pricing.t
 import { certainRoutingProvider } from "../src/model-routing.ts";
 import {
   deviationColorSpec,
+  type DeviationThresholds,
   snapshotFromBranch,
   snapshotFromMessage,
   snapshotFromModel,
@@ -114,13 +115,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
     // Deviation of the effective price from the catalogue price -> colour the
     // section icon (arrow); the numbers stay in the base colour.
+    const thresholds = settings.deviationThresholds;
     const colors: PriceColors = {
       base: settings.color,
       input: styleDeviation(
-        deviationColorSpec(snapshot.inputUsdPerMillion, snapshot.catalogueInputUsdPerMillion),
+        deviationColorSpec(snapshot.inputUsdPerMillion, snapshot.catalogueInputUsdPerMillion, thresholds),
       ),
       output: styleDeviation(
-        deviationColorSpec(snapshot.outputUsdPerMillion, snapshot.catalogueOutputUsdPerMillion),
+        deviationColorSpec(snapshot.outputUsdPerMillion, snapshot.catalogueOutputUsdPerMillion, thresholds),
       ),
     };
     return composeStatus(snapshot, settings.currency, rate, icons, colors);
@@ -341,7 +343,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   pi.registerCommand(COMMAND_NAME, {
     description: "Effektive Provider-Tokenpreise anzeigen/ein-/ausschalten",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style", "threshold"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
       const value = prefix.trimStart().toLowerCase();
 
@@ -366,6 +368,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         return presets
           .filter((entry) => entry.startsWith(name))
           .map((entry) => ({ value: `${head} ${entry}`, label: entry }));
+      }
+
+      if (value.startsWith("threshold ")) {
+        const parts = value.split(/\s+/);
+        const which = parts[1] ?? "";
+        if (parts.length <= 2) {
+          return ["green", "yellow", "orange"]
+            .filter((entry) => entry.startsWith(which))
+            .map((entry) => ({ value: `threshold ${entry} `, label: entry }));
+        }
+        return [];
       }
 
       if (value.startsWith("style ")) {
@@ -450,6 +463,29 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         if (code !== "USD") await ensureRatesLoaded();
         render(ctx);
         ctx.ui.notify(`Währung auf ${code} gesetzt.`, "info");
+        return;
+      }
+      case "threshold": {
+        const keys: (keyof DeviationThresholds)[] = ["green", "yellow", "orange"];
+        const which = rest[0]?.toLowerCase() as keyof DeviationThresholds | undefined;
+        const value = Number(rest[1]);
+        if (!which || !keys.includes(which) || rest[1] === undefined || !Number.isFinite(value) || value < 0) {
+          ctx.ui.notify(
+            `Erwartet: /${COMMAND_NAME} threshold <green|yellow|orange> <prozent> (>= 0)`,
+            "warning",
+          );
+          return;
+        }
+        const deviationThresholds: DeviationThresholds = { ...settings.deviationThresholds, [which]: value };
+        settings = { ...settings, deviationThresholds };
+        await saveSettings({ deviationThresholds });
+        render(ctx);
+        ctx.ui.notify(
+          `Schwelle ${which} auf ${value}% gesetzt `
+            + `(grün < -${deviationThresholds.green}%, gelb <= ${deviationThresholds.yellow}%, `
+            + `orange <= ${deviationThresholds.orange}%, sonst rot).`,
+          "info",
+        );
         return;
       }
       case "style": {
@@ -550,7 +586,10 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           : "cache:-";
         ctx.ui.notify(
           `Provider-Preise: ${state} · Währung: ${settings.currency} · Icons: ${settings.icons}`
-          + ` · Farben: ${settings.color}/${settings.switchColor} (Abweichung: ${settings.deviationStyle})`
+          + ` · Farben: ${settings.color}/${settings.switchColor}`
+          + ` (Abweichung: ${settings.deviationStyle}, Schwellen: `
+          + `-${settings.deviationThresholds.green}/${settings.deviationThresholds.yellow}/`
+          + `${settings.deviationThresholds.orange}%)`
           + ` · Lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh alle ${settings.providerCacheRefreshPrompts} Prompts)`
           + ` · Anzeige: ${text ?? "-"} · Modell: ${active} · Tag: ${tag ?? "-"} (${source})`
           + ` · Preise: ${snapshot?.cataloguePreview ? "katalog (Vorschau)" : snapshot?.ratesFromApi ? "api" : "katalog"} · ${cacheInfo}`
@@ -575,6 +614,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   function commandUsage(): string {
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
       + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...|reverse:...>`
-      + `|switchColor <...>|style <${DEVIATION_STYLES.join("|")}>|lookup <on|off|refresh>`;
+      + `|switchColor <...>|style <${DEVIATION_STYLES.join("|")}>`
+      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>`;
   }
 }

@@ -126,6 +126,22 @@ function catalogueRates(model: unknown): { input: number | null; output: number 
   };
 }
 
+/** Percentage thresholds behind the deviation colouring. */
+export interface DeviationThresholds {
+  /** Deviation below `-green` percent -> green (cheaper than catalogue). */
+  green: number;
+  /** Deviation above 0 up to `yellow` percent -> yellow. */
+  yellow: number;
+  /** Deviation above `yellow` up to `orange` percent -> orange; above -> red. */
+  orange: number;
+}
+
+export const DEFAULT_DEVIATION_THRESHOLDS: DeviationThresholds = {
+  green: 10,
+  yellow: 10,
+  orange: 20,
+};
+
 /**
  * Deviation of the effective price from the catalogue price, in percent
  * (negative = cheaper than the catalogue).
@@ -142,15 +158,16 @@ function deviationPercent(effectiveUsd: number | null, catalogueUsd: number | nu
 export function deviationColorSpec(
   effectiveUsd: number | null,
   catalogueUsd: number | null,
+  thresholds: DeviationThresholds = DEFAULT_DEVIATION_THRESHOLDS,
 ): string | null {
   const deviation = deviationPercent(effectiveUsd, catalogueUsd);
   if (deviation === null) return null;
 
-  if (deviation < -10) return "green"; // more than 10% below catalogue
-  if (deviation > 20) return "red"; // more than 20% above catalogue
-  if (deviation > 10) return "orange"; // 10-20% above catalogue
-  if (deviation > 0) return "yellow"; // up to 10% above catalogue
-  return null; // 0% or within 10% below -> default colour
+  if (deviation < -thresholds.green) return "green"; // cheaper than catalogue
+  if (deviation > thresholds.orange) return "red";
+  if (deviation > thresholds.yellow) return "orange";
+  if (deviation > 0) return "yellow";
+  return null; // 0% or within the discount threshold -> default colour
 }
 
 function isAssistantLike(value: unknown): value is AssistantLike {

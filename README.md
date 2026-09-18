@@ -115,13 +115,16 @@ die Abweichung. Eingefärbt werden die **Icons/Pfeile** (In und Out getrennt);
 die Zahlen selbst bleiben in der Standardfarbe, damit sie auf dunklem
 Hintergrund gut lesbar sind. Provider-Tag ebenfalls in der Standardfarbe.
 
+   Schwellen sind konfigurierbar (Settings `deviationThresholds`, Befehl
+   `/provider-cost threshold …`); die Prozentwerte unten sind die Defaults:
+
    | Abweichung zum Katalogpreis | Farbe |
    | --- | --- |
-   | mehr als 10 % **billiger** (< −10 %) | **grün** |
-   | bis 10 % teurer (0 % < x ≤ 10 %) | **gelb** |
-   | 10–20 % teurer (> 10 % und ≤ 20 %) | **orange** (256-Farbe 208) |
-   | mehr als 20 % teurer (> 20 %) | **rot** |
-   | sonst (0 % bzw. ≤ 10 % billiger, oder kein Katalogpreis bekannt) | Standardfarbe |
+   | mehr als `green` % **billiger** (< −10 %) | **grün** |
+   | bis `yellow` % teurer (0 % < x ≤ 10 %) | **gelb** |
+   | `yellow`–`orange` % teurer (> 10 % und ≤ 20 %) | **orange** (256-Farbe 208) |
+   | mehr als `orange` % teurer (> 20 %) | **rot** |
+   | sonst (0 % bzw. ≤ `green` % billiger, oder kein Katalogpreis bekannt) | Standardfarbe |
 
    > In und Out werden **einzeln** gefärbt (z. B. Input-Pfeil grün, Output-Pfeil
    > rot). Liegt kein effektiver Preis oder kein Katalogpreis vor (z. B. `?`),
@@ -188,6 +191,7 @@ Gängige Alternativen für den Wechsel-Highlight:
 | `/provider-cost color <spec>` | Standardfarbe setzen, z. B. `white`, `#ffd700`, `226`, `bold:yellow` (persistiert, s. [Farben](#farben)) |
 | `/provider-cost switchColor <spec>` | Wechselfarbe (Providerwechsel) setzen (persistiert, s. [Farben](#farben)) |
 | `/provider-cost style <plain\|bold\|reverse>` | Attribute der Abweichungsfarbe am In/Out-Icon (persistiert; Default `plain`) |
+| `/provider-cost threshold <green\|yellow\|orange> <pct>` | Abweichungs-Schwelle in Prozent setzen (persistiert; Defaults 10/10/20) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider-Auflösung ein/aus; `refresh` leert Provider- **und** Preis-Cache und löst neu auf |
 
 ## Konfiguration
@@ -205,6 +209,7 @@ Befehl setzbar.
     "color": "white",
     "switchColor": "bold:#ffd700",
     "deviationStyle": "plain",
+    "deviationThresholds": { "green": 10, "yellow": 10, "orange": 20 },
     "lookupUpstreamProvider": true,
     "providerCacheRefreshPrompts": 10
   }
@@ -219,6 +224,7 @@ Befehl setzbar.
 | `color` | `"white"` | Standardfarbe: Palettenname, `#rrggbb` oder `0-255`, optional mit `bold:` |
 | `switchColor` | `"bold:#ffd700"` | Farbe direkt nach erkanntem Providerwechsel |
 | `deviationStyle` | `"plain"` | SGR-Attribute der Abweichungsfarbe am Icon: `plain`, `bold`, `reverse` |
+| `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Prozent-Schwellen: unter `-green` grün, bis `yellow` gelb, bis `orange` orange, darüber rot (alle ≥ 0) |
 | `lookupUpstreamProvider` | `true` | Provider/Kosten-Auflösung aktiv (Routing-Constraint + Cache + Generation-API) |
 | `providerCacheRefreshPrompts` | `10` | Nach so vielen **Prompts** (User-Turns) wird ein `generation`-Cacheeintrag erneuert; `0` = immer neu auflösen |
 

@@ -12,6 +12,10 @@ import { join } from "node:path";
 
 import { normalizeColorSpec } from "./color.ts";
 import { normalizeIconMode, type IconMode } from "./icons.ts";
+import {
+  DEFAULT_DEVIATION_THRESHOLDS,
+  type DeviationThresholds,
+} from "./pricing.ts";
 
 /**
  * SGR attributes applied to the deviation colours (which are carried by the
@@ -66,6 +70,8 @@ export interface ExtensionSettings {
   providerCacheRefreshPrompts: number;
   /** SGR attributes for the catalogue-deviation colours (input/output icons). */
   deviationStyle: DeviationStyle;
+  /** Percentage thresholds for the deviation colours (green/yellow/orange). */
+  deviationThresholds: DeviationThresholds;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -79,7 +85,21 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   providerCacheRefreshPrompts: 10,
   // Plain colour on the arrows; the numbers stay in the base colour.
   deviationStyle: "plain",
+  deviationThresholds: DEFAULT_DEVIATION_THRESHOLDS,
 };
+
+/** Validates the threshold object, filling in defaults for missing/invalid entries. */
+export function normalizeDeviationThresholds(value: unknown): DeviationThresholds {
+  const section = isRecord(value) ? value : {};
+  const pick = (key: keyof DeviationThresholds): number => {
+    const raw = section[key];
+    return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+      ? raw
+      : DEFAULT_DEVIATION_THRESHOLDS[key];
+  };
+
+  return { green: pick("green"), yellow: pick("yellow"), orange: pick("orange") };
+}
 
 export function normalizeDeviationStyle(value: unknown): DeviationStyle | undefined {
   if (typeof value !== "string") return undefined;
@@ -138,6 +158,7 @@ export async function loadSettings(): Promise<ExtensionSettings> {
         : DEFAULT_SETTINGS.providerCacheRefreshPrompts,
     deviationStyle:
       normalizeDeviationStyle(section.deviationStyle) ?? DEFAULT_SETTINGS.deviationStyle,
+    deviationThresholds: normalizeDeviationThresholds(section.deviationThresholds),
   };
 }
 
