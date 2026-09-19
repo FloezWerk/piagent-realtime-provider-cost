@@ -41,8 +41,13 @@ All values are **per 1M tokens** in the configured currency.
 ## Installation
 
 ```bash
-pi install ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git
+pi install git:git@github.com:FloezWerk/piagent-realtime-provider-cost.git
 ```
+
+> This repository is developed against a local Gitea instance and mirrored to
+> the public GitHub repository `FloezWerk/piagent-realtime-provider-cost`.
+> Installation instructions always reference the **GitHub** URL – the Gitea path
+> is internal and must not appear in user-facing docs.
 
 Local/development:
 
