@@ -60,7 +60,10 @@ jobs:
       - name: Verify CHANGELOG has an entry for this version
         run: |
           VER="$(node -p "require('./package.json').version")"
-          if ! grep -Eq "^## \\$VER\\]" CHANGELOG.md; then
+          # -F: brackets as literals. The previous regex form ("^## " plus an
+          # escaped \$VER\]) collapsed to a backslash before the version number
+          # and never matched.
+          if ! grep -Fq "## [$VER]" CHANGELOG.md; then
             echo "::error::CHANGELOG.md has no ## [$VER] entry (see AGENTS.md: changelog is mandatory)"
             exit 1
           fi
