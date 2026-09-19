@@ -21,6 +21,10 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
   model-routing, pricing, provider-cache, rates, settings, upstream
 - `CHANGELOG.md` - user-facing changes per version (Keep a Changelog format)
 - `.spec-flow/` - tooling state, not part of the extension
+- CI/CD and the release tooling live in
+  [pi-extension-release-tool](https://github.com/FloezWerk/pi-extension-release-tool)
+  (reusable workflows pinned via `@v0.1`, CLI via `npx …@^0.1`); do not copy
+  their logic into this repo
 
 ## Changelog is mandatory
 
@@ -34,9 +38,10 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 
 ## Checks
 
-- `npm run check` - README release-notes block is up to date, bundle smoke test,
-  `npm pack --dry-run` (the same scripts run in CI, see `.github/workflows/ci.yml`;
-  peers stay external, nothing to install)
+- `npm run check` - README release-notes block is up to date (via the release
+  tooling), bundle smoke test, `npm pack --dry-run`. It runs in CI through the
+  shared reusable workflow (`ci.yml` only calls it); peers stay external,
+  nothing to install
 - `npm run readme` - regenerate the README release-notes block from `CHANGELOG.md`
 - `npm run typecheck` - `tsc --noEmit` (needs devDependencies installed)
 - Before committing: quick "no German" review of all touched strings/docs.
