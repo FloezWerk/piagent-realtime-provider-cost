@@ -1,5 +1,10 @@
 # piagent-realtime-provider-cost
 
+[![npm](https://img.shields.io/npm/v/@floez-werk/piagent-realtime-provider-cost)](https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-cost)
+[![license](https://img.shields.io/npm/l/@floez-werk/piagent-realtime-provider-cost)](LICENSE)
+[![CI](https://github.com/FloezWerk/piagent-realtime-provider-cost/actions/workflows/ci.yml/badge.svg)](https://github.com/FloezWerk/piagent-realtime-provider-cost/actions/workflows/ci.yml)
+[![changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-blue)](CHANGELOG.md)
+
 Shows the **effective token prices (input/output, per 1M tokens)** of the
 **last API call** in the Pi status bar – right next to the session cost sum.
 
@@ -398,6 +403,12 @@ optional `peerDependencies`. No runtime dependencies on other extensions.
 
 User-facing changes per version are tracked in [CHANGELOG.md](./CHANGELOG.md)
 (Keep a Changelog format).
+
+<!-- changelog:start -->
+The release notes of the published version are inlined here when the package is
+built for npm; the repository keeps this placeholder (CHANGELOG.md is the single
+source of truth).
+<!-- changelog:end -->
 
 ## License
 

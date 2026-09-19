@@ -56,3 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/provider-cost` command with `on|off|toggle|refresh|status|currency|icons|`
   `color|switchColor|style|threshold|lookup|notify`
 - Optional notify before every automatic generation-API request (default off)
+
+<!-- Versions link to their GitHub release page (created by release.yml), while
+     [Unreleased] links to the comparison against the last tag. -->
+[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.1
+
+<!-- 0.11.0 was released to npm without a git tag, so it links to npm. -->
+[0.11.0]: https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-cost/v/0.11.0

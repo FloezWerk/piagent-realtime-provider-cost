@@ -25,10 +25,16 @@ jobs:
       - name: Bundle + package content checks
         run: npm run check
 
+      # The npm package page shows the CHANGELOG section of the current version
+      # (inlined by release.yml); fail early when the markers or the section for
+      # the bumped version are missing.
+      - name: Changelog block can be generated
+        run: node scripts/build-npm-readme.mjs --check
+
       # AGENTS.md: this project is English-only.
       - name: No-German guard
         run: |
-          if grep -rInP '[äöüÄÖÜß]' README.md AGENTS.md CHANGELOG.md extensions src package.json; then
+          if grep -rInP '[äöüÄÖÜß]' README.md AGENTS.md CHANGELOG.md extensions src scripts package.json; then
             echo '::error::German text found (see AGENTS.md: English only)'
             exit 1
           fi

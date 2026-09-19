@@ -71,6 +71,11 @@ jobs:
       - name: Repeat CI checks
         run: npm run check
 
+      # npm renders README.md, so the release notes of this version are inlined
+      # into the marked block (the repository keeps the placeholder there).
+      - name: Inline the changelog into the npm README
+        run: node scripts/build-npm-readme.mjs
+
       # The extension is plain TypeScript loaded by pi - no build step needed.
       # src/ is published alongside extensions/ because the extension imports
       # its modules from ../src/ (see package.json "files").
@@ -82,8 +87,13 @@ jobs:
       - name: Build tarball for the GitHub release
         run: npm pack
 
+      # Same text as the npm package page: the CHANGELOG section of this version
+      # (scripts/release-notes.mjs), instead of a generated commit list.
+      - name: Build release notes
+        run: node scripts/release-notes.mjs --out /tmp/release-notes.md
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: floez-werk-piagent-realtime-provider-cost-*.tgz
-          generate_release_notes: true
+          body_path: /tmp/release-notes.md
