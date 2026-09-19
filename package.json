@@ -37,7 +37,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "check": "npm run check:bundle && npm run check:pack",
+    "readme": "node scripts/sync-readme-changelog.mjs",
+    "check": "npm run check:readme && npm run check:bundle && npm run check:pack",
+    "check:readme": "node scripts/sync-readme-changelog.mjs --check",
     "check:bundle": "npx -y esbuild@0.25.12 extensions/realtime-provider-cost.ts --bundle --format=esm --platform=node --external:@earendil-works/* --outfile=/tmp/realtime-provider-cost.mjs",
     "check:pack": "npm pack --dry-run"
   },

@@ -22,14 +22,10 @@ jobs:
       # The checks live in package.json scripts so they run identically on a
       # dev machine and in CI (see AGENTS.md). There is nothing to install:
       # the extension has no runtime dependencies (pi bundles its peers).
-      - name: Bundle + package content checks
+      # This includes the guard that the README release-notes block matches the
+      # CHANGELOG section of the current package version.
+      - name: README, bundle and package content checks
         run: npm run check
-
-      # The npm package page shows the CHANGELOG section of the current version
-      # (inlined by release.yml); fail early when the markers or the section for
-      # the bumped version are missing.
-      - name: Changelog block can be generated
-        run: node scripts/build-npm-readme.mjs --check
 
       # AGENTS.md: this project is English-only.
       - name: No-German guard

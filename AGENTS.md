@@ -28,21 +28,27 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
   in the same commit that introduces it (categories: `Added`, `Changed`, `Fixed`, ...).
 - Internal refactors, CI/tooling tweaks, docs-only fixes: no entry.
 - `release.yml` rejects a tag without a matching `## [X.Y.Z]` entry.
+- `README.md` shows the release notes of the current version in the marked
+  block: generated from `CHANGELOG.md` via `npm run readme` (Gitea, the GitHub
+  mirror and npm render the README). Never edit that block by hand.
 
 ## Checks
 
-- `npm run check` - bundle smoke test + `npm pack --dry-run` (the same scripts
-  run in CI, see `.github/workflows/ci.yml`; peers stay external, nothing to install)
+- `npm run check` - README release-notes block is up to date, bundle smoke test,
+  `npm pack --dry-run` (the same scripts run in CI, see `.github/workflows/ci.yml`;
+  peers stay external, nothing to install)
+- `npm run readme` - regenerate the README release-notes block from `CHANGELOG.md`
 - `npm run typecheck` - `tsc --noEmit` (needs devDependencies installed)
 - Before committing: quick "no German" review of all touched strings/docs.
 
 ## Releasing
 
 1. Move `[Unreleased]` bullets to `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md`
-2. Bump `"version"` in `package.json` to `X.Y.Z`, commit
+2. Bump `"version"` in `package.json` to `X.Y.Z`, run `npm run readme`, commit
+   both (the README block then already shows the notes on Gitea)
 3. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
    -> Gitea mirrors the tag -> `release.yml`: npm publish (provenance, scope
-   `@floez-werk`) + GitHub release
+   `@floez-werk`) + GitHub release, both with the CHANGELOG section as notes
 
 ## Repository: local Gitea + public GitHub mirror
 

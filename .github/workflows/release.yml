@@ -71,10 +71,12 @@ jobs:
       - name: Repeat CI checks
         run: npm run check
 
-      # npm renders README.md, so the release notes of this version are inlined
-      # into the marked block (the repository keeps the placeholder there).
-      - name: Inline the changelog into the npm README
-        run: node scripts/build-npm-readme.mjs
+      # Both the repository hosts and npm render README.md. The block is
+      # committed by the release step (see AGENTS.md) and re-synced here so the
+      # npm package page is correct even when that was forgotten - it is
+      # idempotent and "npm run check" above already verified consistency.
+      - name: Sync the README release-notes block
+        run: npm run readme
 
       # The extension is plain TypeScript loaded by pi - no build step needed.
       # src/ is published alongside extensions/ because the extension imports
