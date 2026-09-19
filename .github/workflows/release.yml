@@ -1,0 +1,78 @@
+name: Release
+
+# Triggered by pushing a version tag (vX.Y.Z). Publishing happens here and
+# only here; CI (ci.yml) validates every commit beforehand. The checks below
+# are repeated because a tag may also point at a commit that never ran CI.
+#
+# pi.dev/packages needs no extra publish step: the gallery automatically lists
+# npm packages carrying the "pi-package" keyword (already in package.json).
+#
+# Required secret: NPM_TOKEN (npm automation token, scope @floez-werk).
+# Optional gate: uncomment "environment: release" and configure the GitHub
+# environment "release" with required reviewers for a manual approval step
+# before every publish.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # create the GitHub release
+  id-token: write   # npm provenance (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Guards: tag must match the package version, and that version must not
+      # already exist on npm (publishing a moved/reused tag would otherwise
+      # fail late or, worse, silently do nothing).
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Verify version not already published
+        run: |
+          PKG="$(node -p "require('./package.json').name")"
+          PKG_ENC="$(node -p "require('./package.json').name.replace('/', '%2F')")"
+          VER="$(node -p "require('./package.json').version")"
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$PKG_ENC/$VER")"
+          if [ "$CODE" = "200" ]; then
+            echo "::error::$PKG@$VER is already published on npm"
+            exit 1
+          fi
+
+      - name: Repeat CI checks
+        run: npm run check
+
+      # The extension is plain TypeScript loaded by pi - no build step needed.
+      # src/ is published alongside extensions/ because the extension imports
+      # its modules from ../src/ (see package.json "files").
+      - name: Publish to npm (with provenance)
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Build tarball for the GitHub release
+        run: npm pack
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: floez-werk-piagent-realtime-provider-cost-*.tgz
+          generate_release_notes: true

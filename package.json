@@ -11,6 +11,7 @@
     "statusbar"
   ],
   "license": "MIT",
+  "author": "FloezWerk",
   "type": "module",
   "files": [
     "extensions",
@@ -18,6 +19,14 @@
     "README.md",
     "LICENSE"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FloezWerk/piagent-realtime-provider-cost.git"
+  },
+  "homepage": "https://github.com/FloezWerk/piagent-realtime-provider-cost#readme",
+  "bugs": {
+    "url": "https://github.com/FloezWerk/piagent-realtime-provider-cost/issues"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -27,7 +36,10 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm run check:bundle && npm run check:pack",
+    "check:bundle": "npx -y esbuild@0.25.12 extensions/realtime-provider-cost.ts --bundle --format=esm --platform=node --external:@earendil-works/* --outfile=/tmp/realtime-provider-cost.mjs",
+    "check:pack": "npm pack --dry-run"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
