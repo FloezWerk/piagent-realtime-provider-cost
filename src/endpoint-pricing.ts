@@ -26,8 +26,10 @@ export interface EndpointPricing {
   prompt: number;
   /** USD per 1M tokens. */
   completion: number;
-  /** USD per 1M tokens (cached prompt tokens). */
+  /** USD per 1M tokens (cached prompt tokens, cache hit). */
   cacheRead: number;
+  /** USD per 1M tokens (cached prompt tokens, cache write). */
+  cacheWrite: number;
 }
 
 export type ProviderPricingMap = Map<string, EndpointPricing>;
@@ -37,10 +39,17 @@ interface CacheEntry {
   providers: Record<string, EndpointPricing>;
 }
 
+/**
+ * Bumped to 2: v1 entries were written per-million but re-scaled by 1e6 on every
+ * load, so their values (and, after a few restarts, the factor derived from
+ * them) are unusable and must be discarded.
+ */
 interface CacheFile {
-  version: 1;
+  version: 2;
   models: Record<string, CacheEntry>;
 }
+
+const CACHE_VERSION = 2;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -68,7 +77,26 @@ function parsePricing(value: unknown): EndpointPricing | null {
     prompt,
     completion,
     cacheRead: perMillion(value.input_cache_read) ?? prompt,
+    cacheWrite: perMillion(value.input_cache_write) ?? prompt,
   };
+}
+
+/** Numbers already stored in USD per 1M tokens (no per-token scaling). */
+function storedPricing(value: Record<string, unknown>): EndpointPricing | null {
+  const prompt = numberOrNull(value.prompt);
+  const completion = numberOrNull(value.completion);
+  if (prompt === null || completion === null) return null;
+
+  return {
+    prompt,
+    completion,
+    cacheRead: numberOrNull(value.cacheRead) ?? prompt,
+    cacheWrite: numberOrNull(value.cacheWrite) ?? prompt,
+  };
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function parseEndpoints(body: unknown): ProviderPricingMap {
@@ -97,10 +125,10 @@ let dirty = false;
 async function loadFile(): Promise<CacheFile> {
   if (fileCache) return fileCache;
 
-  fileCache = { version: 1, models: {} };
+  fileCache = { version: CACHE_VERSION, models: {} };
   try {
     const raw: unknown = JSON.parse(await readFile(cachePath(), "utf8"));
-    if (!isRecord(raw) || !isRecord(raw.models)) return fileCache;
+    if (!isRecord(raw) || raw.version !== CACHE_VERSION || !isRecord(raw.models)) return fileCache;
 
     for (const [model, value] of Object.entries(raw.models)) {
       if (!isRecord(value) || !isRecord(value.providers)) continue;
@@ -109,7 +137,7 @@ async function loadFile(): Promise<CacheFile> {
       const providers: Record<string, EndpointPricing> = {};
       for (const [name, pricing] of Object.entries(value.providers)) {
         if (!isRecord(pricing)) continue;
-        const parsed = parsePricing({ prompt: pricing.prompt, completion: pricing.completion, input_cache_read: pricing.cacheRead });
+        const parsed = storedPricing(pricing);
         if (parsed) providers[name] = parsed;
       }
       fileCache.models[model] = { fetchedAt: value.fetchedAt, providers };
@@ -185,7 +213,7 @@ export async function getProviderPricing(
 
 /** Drops the cached price lists (used by `/provider-cost lookup refresh`). */
 export function clearPricingCache(): void {
-  if (!fileCache) fileCache = { version: 1, models: {} };
+  if (!fileCache) fileCache = { version: CACHE_VERSION, models: {} };
   fileCache.models = {};
   persist(fileCache);
 }

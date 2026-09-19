@@ -272,7 +272,8 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   (input/output/cache) of the provider that actually served the request:
 
   ```
-  modelled = prompt*in + completion*out + cacheRead*cacheReadTokens   (from endpoint prices)
+  modelled = prompt*in + completion*out
+           + cacheWrite*cacheWriteTokens + cacheRead*cacheReadTokens   (from endpoint prices)
   factor   = total_cost / modelled          # discounts, peak overrides, price changes
   in-rate  = prompt * factor                (USD per 1M tokens)
   out-rate = completion * factor
@@ -281,6 +282,11 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   The `factor` makes the display match the invoice even when endpoint prices do
   not (yet) exactly match the billed rate. As long as no API data is available,
   the approximation from `usage.cost.*` (Pi catalogue) is shown.
+
+  All billed buckets count towards `modelled`, including the cached prompt
+  tokens: OpenRouter reports the uncached prompt part as `input`, so a call whose
+  prompt is mostly a cache write would otherwise produce a factor far above 1
+  (and therefore absurdly high displayed rates).
 
 - **Resolution.** Order:
   1. **Routing constraint** from `models.json`

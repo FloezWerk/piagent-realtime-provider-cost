@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- No more absurdly high rates for cache-heavy prompts: the billed amount is now
+  matched against *all* token buckets (input, cache write, cache read, output)
+  with the provider's price for each one. Cached prompt tokens were previously
+  left out of the modelled total while OpenRouter counts them in `total_cost`,
+  which inflated the correction factor (e.g. 36x for a first `gpt-5.6-luna` call
+  on Azure with ~5.6k cache-write tokens).
+- The endpoint-price cache no longer re-scales its stored (already per-1M) values
+  by 1e6 on every load; a cache written by an older version is discarded
+  (cache version 2).
 - A generation-API lookup that returned no result no longer turns into one
   request per prompt: the failed attempt re-arms the cache window like a stored
   entry, so the prompt counter (and the notify reason `cache expired (N prompts)`)
