@@ -32,9 +32,10 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
   in the same commit that introduces it (categories: `Added`, `Changed`, `Fixed`, ...).
 - Internal refactors, CI/tooling tweaks, docs-only fixes: no entry.
 - `release.yml` rejects a tag without a matching `## [X.Y.Z]` entry.
-- `README.md` shows the release notes of the current version in the marked
-  block: generated from `CHANGELOG.md` via `npm run readme` (Gitea, the GitHub
-  mirror and npm render the README). Never edit that block by hand.
+- `README.md` has two generated blocks - the badges (from `package.json`) and
+  the release notes of the current version (from `CHANGELOG.md`) - written by
+  `npm run readme` and verified by `npm run check` (Gitea, the GitHub mirror and
+  npm render the README). Never edit them by hand.
 
 ## Checks
 
