@@ -195,6 +195,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    * when the provider is not certain: with `allow_fallbacks` (OpenRouter
    * default) another provider may serve the request even though `only` lists
    * just one, but that is exactly what the cached generation result reflects.
+   * An entry without rates counts as valid too: free models never bill a
+   * per-token rate, so a missing rate must not turn into a request per prompt.
    *
    * Every outgoing generation-API request is announced via `ctx.ui.notify`,
    * including the reason (cache miss, expired entry, model switch, manual
@@ -232,22 +234,22 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       applyProvider(ctx, target, certainName, "routing");
     }
 
-    // 2) Cached real rates (from an earlier generation lookup).
+    // 2) Valid cache entry for this model (from an earlier generation lookup).
     const cached = providerCache.get(key, settings.providerCacheRefreshPrompts);
-    const cachedInput = cached?.inputRate;
-    const cachedOutput = cached?.outputRate;
-    const cachedRates =
-      cachedInput != null && cachedOutput != null
-        ? { input: cachedInput, output: cachedOutput }
-        : null;
-
-    if (cachedRates && cached) {
+    if (cached) {
       if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
-      applyRates(ctx, target, cachedRates.input, cachedRates.output);
-      // A still-valid cache entry is enough - for certain routing providers as
-      // well as for generation results. Only a model switch (`force`) or an
-      // expired entry (cached === null above) triggers a fresh lookup, so the
-      // "update in progress" marker is not shown on every prompt.
+
+      const cachedRates =
+        cached.inputRate != null && cached.outputRate != null
+          ? { input: cached.inputRate, output: cached.outputRate }
+          : null;
+      if (cachedRates) applyRates(ctx, target, cachedRates.input, cachedRates.output);
+
+      // A still-valid entry is enough - for certain routing providers just as
+      // for generation results, and with or without rates (a free model has
+      // none, see above). Only a model switch (`force`) or an expired entry
+      // (cached === null above) triggers a fresh lookup, so no generation
+      // request is sent per prompt.
       if (!force) return;
     }
 

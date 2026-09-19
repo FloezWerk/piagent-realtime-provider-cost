@@ -300,8 +300,13 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   **When is the API called?**
   - Provider *certain* (one `only` entry **and** `allow_fallbacks: false`) →
     once on the first call, afterwards only every N prompts (rate cache).
-  - Provider *not certain* (`allow_fallbacks: true` or no `only`) →
-    **per response**, because only the actual provider counts.
+  - Provider *not certain* (`allow_fallbacks: true` or no `only`) → also once
+    per cache window: the cached entry covers the whole window, because it
+    reflects the provider that actually served the request.
+  - **Free models** (`:free`, zero endpoint prices) → same as above. No
+    per-token rate can be derived from a zero invoice, so the entry is cached
+    **without** rates and stays valid for the full window instead of forcing a
+    request per prompt.
   - **Model switch** (different request model than the previous call) → forced
     refresh of provider **and** costs, even if the cache would still be fresh. A
     session restore with the same model is not a switch.

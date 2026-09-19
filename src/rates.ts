@@ -45,7 +45,12 @@ export function deriveRealRates(
     + (pricing.completion / 1e6) * tokens.output
     + (pricing.cacheRead / 1e6) * tokens.cacheRead;
 
-  if (!(modelled > 0)) return null;
+  if (!(modelled > 0)) {
+    // Free model: the endpoint prices are 0, so there is no in/out ratio to
+    // derive. When nothing was billed either, the effective rates are simply 0
+    // (a missing rate would otherwise trigger a generation request per prompt).
+    return totalCost === 0 ? { input: 0, output: 0, factor: 1 } : null;
+  }
 
   const factor = totalCost / modelled;
   if (!Number.isFinite(factor) || factor < 0) return null;

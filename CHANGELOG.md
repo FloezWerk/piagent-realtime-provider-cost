@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Free OpenRouter models no longer trigger a generation-API request after every
+  prompt: a zero invoice yields no per-token rate, so the cache entry was never
+  considered usable. Such an entry now stays valid for the whole cache window
+  (`providerCacheRefreshPrompts`), and a zero invoice is reported as real `$0`
+  rates.
+
 ## [0.11.0] - 2026-09-19
 
 ### Added
