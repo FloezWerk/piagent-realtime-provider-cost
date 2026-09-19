@@ -41,6 +41,14 @@ All values are **per 1M tokens** in the configured currency.
 
 ## Installation
 
+From npm (scoped as `@floez-werk`):
+
+```bash
+pi install npm:@floez-werk/piagent-realtime-provider-cost
+```
+
+Or directly from the repository:
+
 ```bash
 pi install git:git@github.com:FloezWerk/piagent-realtime-provider-cost.git
 ```

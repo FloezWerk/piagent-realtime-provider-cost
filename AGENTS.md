@@ -53,3 +53,5 @@ committing.
 - Exception: the locally installed extension copy was installed from the Gitea
   source, so refreshing it uses that same source:
   `pi update ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git`.
+- npm releases are published under the **`@floez-werk`** scope (package name
+  `@floez-werk/piagent-realtime-provider-cost`, `publishConfig.access: public`).

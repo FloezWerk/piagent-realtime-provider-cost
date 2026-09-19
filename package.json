@@ -1,7 +1,6 @@
 {
-  "name": "piagent-realtime-provider-cost",
+  "name": "@floez-werk/piagent-realtime-provider-cost",
   "version": "0.11.0",
-  "private": true,
   "description": "Pi extension: shows the effective token prices (input/output, per 1M tokens) of the provider/model of the last API call in the status bar.",
   "keywords": [
     "pi",
@@ -13,6 +12,15 @@
   ],
   "license": "MIT",
   "type": "module",
+  "files": [
+    "extensions",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./extensions"
