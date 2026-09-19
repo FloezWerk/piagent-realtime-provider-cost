@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The deviation colour on the in/out arrows no longer turns yellow when the
+  effective rate matches the catalogue price: the deviation is now computed from
+  the rates rounded to the displayed precision (4 decimals in the display
+  currency), so a rate that renders like the list price keeps the base colour.
+  Binary-float noise of the invoice-derived rates (e.g. a factor of
+  1.0000000000000002, `$0.20000000000000004` vs `$0.2`) previously produced a
+  ~1e-14 % deviation and coloured the arrows.
 - No more absurdly high rates for cache-heavy prompts: the billed amount is now
   matched against *all* token buckets (input, cache write, cache read, output)
   with the provider's price for each one. Cached prompt tokens were previously

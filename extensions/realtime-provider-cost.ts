@@ -32,7 +32,7 @@ import type {
 
 import { COLOR_NAMES, colorize, normalizeColorSpec } from "../src/color.ts";
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
-import { composeStatus, type PriceColors } from "../src/format.ts";
+import { composeStatus, roundToDisplay, type PriceColors } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
 import { clearPricingCache, getProviderPricing } from "../src/endpoint-pricing.ts";
 import { certainRoutingProvider } from "../src/model-routing.ts";
@@ -116,15 +116,26 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     }
 
     // Deviation of the effective price from the catalogue price -> colour the
-    // section icon (arrow); the numbers stay in the base colour.
+    // section icon (arrow); the numbers stay in the base colour. Compared at the
+    // displayed precision, so an equal-looking price never colours the arrow.
     const thresholds = settings.deviationThresholds;
+    const shown = (usd: number | null): number | null =>
+      usd === null ? null : roundToDisplay(usd, rate);
     const colors: PriceColors = {
       base: settings.color,
       input: styleDeviation(
-        deviationColorSpec(snapshot.inputUsdPerMillion, snapshot.catalogueInputUsdPerMillion, thresholds),
+        deviationColorSpec(
+          shown(snapshot.inputUsdPerMillion),
+          shown(snapshot.catalogueInputUsdPerMillion),
+          thresholds,
+        ),
       ),
       output: styleDeviation(
-        deviationColorSpec(snapshot.outputUsdPerMillion, snapshot.catalogueOutputUsdPerMillion, thresholds),
+        deviationColorSpec(
+          shown(snapshot.outputUsdPerMillion),
+          shown(snapshot.catalogueOutputUsdPerMillion),
+          thresholds,
+        ),
       ),
     };
     return composeStatus(snapshot, settings.currency, rate, icons, colors);

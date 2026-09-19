@@ -158,7 +158,14 @@ function deviationPercent(effectiveUsd: number | null, catalogueUsd: number | nu
   return ((effectiveUsd - catalogueUsd) / catalogueUsd) * 100;
 }
 
-/** Colour spec for a deviation, or null when the default colour should apply. */
+/**
+ * Colour spec for a deviation, or null when the default colour should apply.
+ *
+ * The caller passes the rates rounded to the display precision (see
+ * `roundToDisplay` in `format.ts`): "same as displayed" must mean "same colour",
+ * otherwise binary-float noise colours the arrows (the invoice-derived rates are
+ * off by a few ULP from the catalogue price, e.g. 0.20000000000000004 vs 0.2).
+ */
 export function deviationColorSpec(
   effectiveUsd: number | null,
   catalogueUsd: number | null,

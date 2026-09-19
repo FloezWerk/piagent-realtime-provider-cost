@@ -142,6 +142,14 @@ The provider tag is also in the base colour.
    | more than `orange` % more expensive (> 20 %) | **red** |
    | otherwise (0 %, up to `green` % cheaper, or no catalogue price known) | base colour |
 
+   The comparison uses the **displayed precision**: both rates are rounded to the
+   4 decimals the status line shows (in the display currency) before the
+   deviation is computed. A rate that renders identically to the catalogue price
+   therefore keeps the base colour - this swallows the binary-float noise of the
+   invoice-derived rates (e.g. an effective `0.20000000000000004` versus the
+   catalogue `0.2`, both shown as `$0.2`). A difference must be visible in the
+   numbers to get a colour.
+
    > In and out are coloured **individually** (e.g. input arrow green, output
    > arrow red). If there is no effective price or no catalogue price (e.g. `?`),
    > the base colour stays.

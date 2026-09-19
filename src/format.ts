@@ -23,9 +23,33 @@ function paint(text: string, spec: string | null | undefined): string {
   return spec ? colorize(text, spec) : text;
 }
 
+/** Decimals rendered by `formatPrice`; also the resolution of `roundToDisplay`. */
+export const DISPLAY_DECIMALS = 4;
+
+/** Rounds a value exactly like it is rendered (see `DISPLAY_DECIMALS`). */
+export function roundToDecimals(value: number): number {
+  const factor = 10 ** DISPLAY_DECIMALS;
+  return Math.round(value * factor) / factor;
+}
+
+/**
+ * Rounds a USD-per-1M rate down to the precision it is displayed with (display
+ * currency, `DISPLAY_DECIMALS` decimals). Two rates that round to the same value
+ * are rendered identically, so they must also get the same deviation colour -
+ * this absorbs the binary-float noise of the invoice-derived rates.
+ *
+ * Without a usable FX rate the value stays untouched (`formatPrice` shows `?`).
+ */
+export function roundToDisplay(amountUsd: number, rate: number | null): number {
+  if (!Number.isFinite(amountUsd)) return amountUsd;
+  if (rate === null || !Number.isFinite(rate) || rate <= 0) return amountUsd;
+
+  return roundToDecimals(amountUsd * rate) / rate;
+}
+
 /** Rounds to at most 4 decimals and trims trailing zeros for a compact look. */
 function formatNumber(value: number): string {
-  const rounded = Math.round(value * 10_000) / 10_000;
+  const rounded = roundToDecimals(value);
   if (!Number.isFinite(rounded)) return "?";
 
   const fixed = rounded.toFixed(4);
