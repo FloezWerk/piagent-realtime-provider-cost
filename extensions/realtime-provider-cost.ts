@@ -197,6 +197,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    * just one, but that is exactly what the cached generation result reflects.
    * An entry without rates counts as valid too: free models never bill a
    * per-token rate, so a missing rate must not turn into a request per prompt.
+   * The same holds for a request that returns nothing at all: the attempt itself
+   * re-arms the window (`providerCache.markAttempt`), so a failing lookup is not
+   * repeated on every prompt either.
    *
    * Every outgoing generation-API request is announced via `ctx.ui.notify`,
    * including the reason (cache miss, expired entry, model switch, manual
@@ -257,8 +260,24 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     const responseId = target.responseId;
     if (!responseId || lookupsInFlight.has(key)) return;
 
+    // A request that yielded no result (404 right after the call, timeout, ...)
+    // must not be retried on every prompt: the attempt re-arms the cache window
+    // just like a stored entry. `force` (model switch, manual refresh) bypasses
+    // the throttle.
+    const lastAttempt = providerCache.attemptPromptCount(key);
+    const attemptedSince =
+      lastAttempt === null ? null : providerCache.promptCount() - lastAttempt;
+    if (
+      !force
+      && attemptedSince !== null
+      && attemptedSince < Math.max(0, settings.providerCacheRefreshPrompts)
+    ) {
+      return;
+    }
+
     const reason = options.reason ?? generationReason(key);
     lookupsInFlight.add(key);
+    providerCache.markAttempt(key);
 
     // Show an "update in progress" marker instead of hiding the provider info.
     target.providerPending = true;

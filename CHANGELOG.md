@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A generation-API lookup that returned no result no longer turns into one
+  request per prompt: the failed attempt re-arms the cache window like a stored
+  entry, so the prompt counter (and the notify reason `cache expired (N prompts)`)
+  does not keep growing and the last known provider/costs stay in use.
 - Free OpenRouter models no longer trigger a generation-API request after every
   prompt: a zero invoice yields no per-token rate, so the cache entry was never
   considered usable. Such an entry now stays valid for the whole cache window

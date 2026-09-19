@@ -290,7 +290,8 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
      if `only` names exactly one.
   2. **Persistent rate cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
      key = request model. Entries expire after `providerCacheRefreshPrompts`
-     **prompts** (not by time).
+     **prompts** (not by time). The file also stores, per model, the prompt
+     counter of the last generation-API attempt (any outcome).
   3. **Generation API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
      – returns the provider **and** the real amount, at most 1 call per model at a
      time. Data is only available a few seconds after the call → retry with
@@ -310,6 +311,10 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   - **Model switch** (different request model than the previous call) → forced
     refresh of provider **and** costs, even if the cache would still be fresh. A
     session restore with the same model is not a switch.
+  - **Failed lookup** (endpoint returns nothing: 404 right after the call,
+    timeout, ...) → the attempt re-arms the cache window too, so a request that
+    yielded no result is retried at most once per window, not once per prompt.
+    The last known entry stays in use meanwhile.
 
   **Notification.** (Optional, default **off**: setting
   `notifyGenerationLookup` or `/provider-cost notify on`.) Every automatically
