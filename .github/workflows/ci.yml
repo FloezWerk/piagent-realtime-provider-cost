@@ -28,7 +28,7 @@ jobs:
       # AGENTS.md: this project is English-only.
       - name: No-German guard
         run: |
-          if grep -rInP '[äöüÄÖÜß]' README.md AGENTS.md extensions src package.json; then
+          if grep -rInP '[äöüÄÖÜß]' README.md AGENTS.md CHANGELOG.md extensions src package.json; then
             echo '::error::German text found (see AGENTS.md: English only)'
             exit 1
           fi

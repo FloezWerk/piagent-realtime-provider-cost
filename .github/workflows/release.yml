@@ -57,6 +57,14 @@ jobs:
             exit 1
           fi
 
+      - name: Verify CHANGELOG has an entry for this version
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          if ! grep -Eq "^## \\$VER\\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no ## [$VER] entry (see AGENTS.md: changelog is mandatory)"
+            exit 1
+          fi
+
       - name: Repeat CI checks
         run: npm run check
 

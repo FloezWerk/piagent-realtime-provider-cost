@@ -2,68 +2,59 @@
 
 Instructions for AI coding agents (e.g. pi coding agent) working in this repo.
 
+## Keep this file short
+
+This rule is first on purpose: keep `AGENTS.md` very short and concise –
+prefer bullets over prose. When adding or editing a rule, condense, never expand.
+
 ## Language: English only
 
-Everything in this project is written in **English** – this applies to:
-
-- `README.md` and any other documentation
-- source code comments and docstrings
-- user-facing output: `ctx.ui.notify(...)` messages, command descriptions,
-  usage/help strings, error/warning texts, status text
-- settings keys and their descriptions
-
-Do **not** introduce German (or any other language) text. The project was
-originally written with German comments/messages and was fully translated – keep
-it that way. If you touch an existing string or comment, keep it English.
-
-The project is operated via the **pi coding agent**, which reads this file
-automatically at the start of a session.
+- Everything here is English: README/docs, code comments, user-facing strings
+  (`ctx.ui.notify(...)`, command descriptions, help/error texts), settings docs.
+- Never introduce German (or any other language); touching an existing string
+  keeps it English.
 
 ## Project layout
 
-- `extensions/realtime-provider-cost.ts` – the Pi extension (entry point).
-- `src/` – pure, testable modules: `color`, `currency`, `endpoint-pricing`,
-  `format`, `icons`, `model-routing`, `pricing`, `provider-cache`, `rates`,
-  `settings`, `upstream`.
-- `.spec-flow/` – tooling state, not part of the extension.
+- `extensions/realtime-provider-cost.ts` - the Pi extension (entry point)
+- `src/` - pure modules: color, currency, endpoint-pricing, format, icons,
+  model-routing, pricing, provider-cache, rates, settings, upstream
+- `CHANGELOG.md` - user-facing changes per version (Keep a Changelog format)
+- `.spec-flow/` - tooling state, not part of the extension
+
+## Changelog is mandatory
+
+- Every user-facing change gets a bullet under `## [Unreleased]` in `CHANGELOG.md`,
+  in the same commit that introduces it (categories: `Added`, `Changed`, `Fixed`, ...).
+- Internal refactors, CI/tooling tweaks, docs-only fixes: no entry.
+- `release.yml` rejects a tag without a matching `## [X.Y.Z]` entry.
 
 ## Checks
 
-CI runs on GitHub (`.github/workflows/ci.yml`) on every push/PR; releasing is
-separate (`.github/workflows/release.yml`, tag `vX.Y.Z` -> npm publish + GitHub
-release). The checks themselves are npm scripts (see `package.json`) so CI and
-development run the exact same commands:
+- `npm run check` - bundle smoke test + `npm pack --dry-run` (the same scripts
+  run in CI, see `.github/workflows/ci.yml`; peers stay external, nothing to install)
+- `npm run typecheck` - `tsc --noEmit` (needs devDependencies installed)
+- Before committing: quick "no German" review of all touched strings/docs.
 
-```bash
-npm run typecheck      # tsc --noEmit (needs devDependencies installed)
-npm run check          # bundle smoke test + npm pack --dry-run
-npm run check:bundle   # esbuild bundle, pi peers kept external
-npm run check:pack     # tarball content check
-```
+## Releasing
 
-The extension has no test suite; peers are bundled by pi, so the bundling smoke
-test (`npm run check:bundle`) is the quickest check (peer packages stay
-external).
-
-All user-facing strings and docs must pass a quick "no German" review before
-committing; the CI "No-German guard" enforces it automatically.
+1. Move `[Unreleased]` bullets to `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md`
+2. Bump `"version"` in `package.json` to `X.Y.Z`, commit
+3. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
+   -> Gitea mirrors the tag -> `release.yml`: npm publish (provenance, scope
+   `@floez-werk`) + GitHub release
 
 ## Repository: local Gitea + public GitHub mirror
 
-- This repo is developed against a **local Gitea** instance and **mirrored to a
-  public GitHub repository**. Everything committed here becomes publicly
-  readable on GitHub.
-- **Never commit sensitive data** – no API keys, tokens, passwords, credentials
-  or personal data. This applies to source, docs, config examples and git
-  history. Sensitive values belong in env vars or local (untracked) config.
-- Remote: `origin` = Gitea (`ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git`)
-  – this is the push target. The public GitHub URL is
+- Everything committed here becomes publicly readable on GitHub.
+- Never commit sensitive data (keys, tokens, passwords, personal data) -
+  source, docs, examples and history included. Use env vars or untracked files.
+- `origin` = Gitea (`ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git`),
+  push target. Public GitHub URL:
   `git@github.com:FloezWerk/piagent-realtime-provider-cost.git`.
-- **Installation instructions always use the GitHub URL**, never the Gitea path
-  (the Gitea path is internal). Example:
-  `pi install git:git@github.com:FloezWerk/piagent-realtime-provider-cost.git`.
-- Exception: the locally installed extension copy was installed from the Gitea
-  source, so refreshing it uses that same source:
-  `pi update ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git`.
-- npm releases are published under the **`@floez-werk`** scope (package name
-  `@floez-werk/piagent-realtime-provider-cost`, `publishConfig.access: public`).
+- Install instructions always use the GitHub URL or the npm package, never the
+  Gitea path (internal):
+  `pi install git:git@github.com:FloezWerk/piagent-realtime-provider-cost.git` or
+  `pi install npm:@floez-werk/piagent-realtime-provider-cost`
+- Exception: refreshing the locally installed copy uses the Gitea source it
+  came from: `pi update ssh://git@gitea/FloezWerk/piagent-realtime-provider-cost.git`.
