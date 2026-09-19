@@ -5,11 +5,12 @@
  * - `routing`   – derived statically from the model's `openRouterRouting.only`
  *                 constraint (no call, never expires), or
  * - `generation` – resolved once via the generation API and reused for the next
- *                 `providerCacheRefreshPrompts` user prompts.
+ *                 `providerCacheRefreshPrompts` user prompts on that model.
  *
  * Invalidation is prompt-count based (not time based): a generation entry stays
- * valid as long as fewer than N prompts have been submitted since it was stored.
- * The prompt counter is persisted so the semantics survive restarts.
+ * valid as long as fewer than N prompts have been submitted **on that model**
+ * since it was stored. The per-model prompt counters are persisted so the
+ * semantics survive restarts.
  *
  * Attempts are tracked per model as well: a generation-API request that yields
  * no result (404 right after the call, timeout, ...) re-arms the window just
@@ -35,12 +36,19 @@ export interface ProviderCacheEntry {
 }
 
 interface CacheFile {
-  version: 1;
-  /** Monotonic count of submitted user prompts. */
+  version: 1 | 2;
+  /** Model -> monotonic count of submitted user prompts on that model. */
+  promptCounts?: Record<string, number>;
+  /** Legacy (v1): a single global prompt counter, migrated to `promptCounts`. */
   promptCount?: number;
   /** Model -> prompt counter of the last generation-API attempt (any outcome). */
   attempts?: Record<string, number>;
   entries: Record<string, ProviderCacheEntry>;
+}
+
+/** Accepts a persisted counter value, clamping anything unusable to 0. */
+function counter(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -54,7 +62,8 @@ function cachePath(): string {
 export class ProviderCache {
   private entries: Map<string, ProviderCacheEntry> = new Map();
   private attempts: Map<string, number> = new Map();
-  private prompts = 0;
+  /** Model -> submitted prompts on that model. */
+  private counters: Map<string, number> = new Map();
   private loaded = false;
   private writing = false;
   private dirty = false;
@@ -68,15 +77,21 @@ export class ProviderCache {
       const raw: unknown = JSON.parse(await readFile(cachePath(), "utf8"));
       if (!isRecord(raw)) return;
 
-      if (typeof raw.promptCount === "number" && Number.isFinite(raw.promptCount) && raw.promptCount >= 0) {
-        this.prompts = Math.floor(raw.promptCount);
+      // A v1 file carried one global counter. Entries and attempts are anchored
+      // to it and cannot be mapped onto per-model counters, so their anchors are
+      // reset: every model then starts with a full window instead of one that
+      // would never expire (an anchor above its model's counter).
+      const legacy = !isRecord(raw.promptCounts);
+
+      if (isRecord(raw.promptCounts)) {
+        for (const [model, value] of Object.entries(raw.promptCounts)) {
+          this.counters.set(model, counter(value));
+        }
       }
 
       if (isRecord(raw.attempts)) {
         for (const [model, value] of Object.entries(raw.attempts)) {
-          if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-            this.attempts.set(model, Math.floor(value));
-          }
+          this.attempts.set(model, legacy ? 0 : counter(value));
         }
       }
 
@@ -97,7 +112,7 @@ export class ProviderCache {
           provider: provider.trim(),
           source,
           fetchedAt,
-          promptCount: typeof promptCount === "number" && Number.isFinite(promptCount) ? promptCount : 0,
+          promptCount: legacy ? 0 : counter(promptCount),
           ...(typeof inputRate === "number" && Number.isFinite(inputRate) ? { inputRate } : {}),
           ...(typeof outputRate === "number" && Number.isFinite(outputRate) ? { outputRate } : {}),
         });
@@ -107,22 +122,26 @@ export class ProviderCache {
     }
   }
 
-  /** Monotonic prompt counter. */
-  promptCount(): number {
-    return this.prompts;
+  /** Monotonic prompt counter of one model. */
+  promptCount(model: string): number {
+    return this.counters.get(model) ?? 0;
   }
 
-  /** Increments the prompt counter (called once per submitted user prompt). */
-  bumpPromptCount(): void {
-    this.prompts += 1;
+  /**
+   * Increments the prompt counter of one model (called once per submitted user
+   * prompt, with the model that will serve it).
+   */
+  bumpPromptCount(model: string): void {
+    this.counters.set(model, this.promptCount(model) + 1);
     void this.persist();
   }
 
   /**
    * Returns a still-valid entry, or null. `routing` entries never expire;
-   * `generation` entries expire after `refreshPrompts` further prompts. A
-   * failed attempt (see `markAttempt`) re-arms the window, so the last known
-   * provider/costs stay in use instead of being re-resolved per prompt.
+   * `generation` entries expire after `refreshPrompts` further prompts **on the
+   * same model**. A failed attempt (see `markAttempt`) re-arms the window, so
+   * the last known provider/costs stay in use instead of being re-resolved per
+   * prompt. Prompts on other models do not age this entry.
    */
   get(model: string, refreshPrompts: number): ProviderCacheEntry | null {
     const entry = this.entries.get(model);
@@ -130,7 +149,7 @@ export class ProviderCache {
     if (entry.source === "routing") return entry;
 
     const anchor = Math.max(entry.promptCount, this.attempts.get(model) ?? 0);
-    const age = this.prompts - anchor;
+    const age = this.promptCount(model) - anchor;
     return age < Math.max(0, refreshPrompts) ? entry : null;
   }
 
@@ -149,7 +168,7 @@ export class ProviderCache {
       provider,
       source,
       fetchedAt: Date.now(),
-      promptCount: this.prompts,
+      promptCount: this.promptCount(model),
       ...(rates ? { inputRate: rates.input, outputRate: rates.output } : {}),
     });
     void this.persist();
@@ -165,13 +184,14 @@ export class ProviderCache {
    * request so a failing lookup cannot be repeated on every prompt.
    */
   markAttempt(model: string): void {
-    this.attempts.set(model, this.prompts);
+    this.attempts.set(model, this.promptCount(model));
     void this.persist();
   }
 
   clear(): void {
     this.entries.clear();
     this.attempts.clear();
+    this.counters.clear();
     void this.persist();
   }
 
@@ -190,8 +210,8 @@ export class ProviderCache {
         while (this.dirty) {
           this.dirty = false;
           const payload: CacheFile = {
-            version: 1,
-            promptCount: this.prompts,
+            version: 2,
+            promptCounts: Object.fromEntries(this.counters),
             attempts: Object.fromEntries(this.attempts),
             entries: Object.fromEntries(this.entries),
           };

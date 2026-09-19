@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-19
+
+### Changed
+
+- The provider cache window (`providerCacheRefreshPrompts`) is now counted **per
+  model** instead of once globally: prompts on other models no longer age a
+  model's cache entry, so a generation-API lookup happens after N prompts *of
+  that model* regardless of what else was used in between. An existing
+  `provider-cache.json` from an older version is migrated (cache version 2); the
+  prompt counters start fresh for every model.
+
 ## [0.11.2] - 2026-09-19
 
 ### Changed

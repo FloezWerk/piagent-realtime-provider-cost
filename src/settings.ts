@@ -64,8 +64,9 @@ export interface ExtensionSettings {
    */
   lookupUpstreamProvider: boolean;
   /**
-   * Number of user prompts after which a generation-based cache entry is
-   * refreshed (routing entries never expire). 0 = always refresh.
+   * Number of user prompts **on the same model** after which a generation-based
+   * cache entry is refreshed (routing entries never expire). Prompts on other
+   * models do not age the entry. 0 = always refresh.
    */
   providerCacheRefreshPrompts: number;
   /** SGR attributes for the catalogue-deviation colours (input/output icons). */

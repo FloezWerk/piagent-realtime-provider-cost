@@ -277,7 +277,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     // the throttle.
     const lastAttempt = providerCache.attemptPromptCount(key);
     const attemptedSince =
-      lastAttempt === null ? null : providerCache.promptCount() - lastAttempt;
+      lastAttempt === null ? null : providerCache.promptCount(key) - lastAttempt;
     if (
       !force
       && attemptedSince !== null
@@ -335,7 +335,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     const entry = providerCache.peek(key);
     if (!entry) return "cache miss";
 
-    const age = providerCache.promptCount() - entry.promptCount;
+    const age = providerCache.promptCount(key) - entry.promptCount;
     if (entry.source === "generation" && age >= settings.providerCacheRefreshPrompts) {
       return `cache expired (${age} prompts)`;
     }
@@ -352,10 +352,12 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     );
   }
 
-  // Prompt counter for the prompt-count based cache invalidation.
-  pi.on("before_agent_start", async () => {
+  // Prompt counter for the prompt-count based cache invalidation. Counted per
+  // model: prompts on other models must not age this model's cache entry.
+  pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
     await ensureCacheLoaded();
-    providerCache.bumpPromptCount();
+    const model = ctx.model?.id;
+    if (model) providerCache.bumpPromptCount(model);
   });
 
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
@@ -663,7 +665,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const tag = snapshot ? upstreamTag(snapshot) : null;
         const source = snapshot?.providerSource ?? "-";
         const cached = snapshot ? providerCache.peek(snapshot.requestModel) : null;
-        const prompts = providerCache.promptCount();
+        const prompts = snapshot ? providerCache.promptCount(snapshot.requestModel) : 0;
         const cacheInfo = cached
           ? `cache:${cached.source}, age:${prompts - cached.promptCount} prompts`
             + (cached.inputRate != null ? `, rates:api` : "")
@@ -674,11 +676,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           + ` (deviation: ${settings.deviationStyle}, thresholds: `
           + `-${settings.deviationThresholds.green}/${settings.deviationThresholds.yellow}/`
           + `${settings.deviationThresholds.orange}%)`
-          + ` · lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh every ${settings.providerCacheRefreshPrompts} prompts)`
+          + ` · lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh every ${settings.providerCacheRefreshPrompts} prompts per model)`
           + ` · notify: ${settings.notifyGenerationLookup ? "on" : "off"}`
           + ` · display: ${text ?? "-"} · model: ${active} · tag: ${tag ?? "-"} (${source})`
           + ` · rates: ${snapshot?.cataloguePreview ? "catalogue (preview)" : snapshot?.ratesFromApi ? "api" : "catalogue"} · ${cacheInfo}`
-          + ` · prompts: ${prompts} · cache entries: ${providerCache.size()}`,
+          + ` · prompts (current model): ${prompts} · cache entries: ${providerCache.size()}`,
           "info",
         );
         return;
