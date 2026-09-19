@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-09-19
+
+### Changed
+
+- The npm package page now shows the changes of the published version: the
+  CHANGELOG section is inlined into the README when the package is built for
+  npm, instead of only linking to `CHANGELOG.md`. The README also carries
+  npm/license/CI/changelog badges.
+- GitHub release notes for a version come from its CHANGELOG section (same text
+  as the npm package page) instead of a generated commit list.
+
 ## [0.11.1] - 2026-09-19
 
 ### Fixed
@@ -59,7 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Versions link to their GitHub release page (created by release.yml), while
      [Unreleased] links to the comparison against the last tag. -->
-[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.11.2...HEAD
+[0.11.2]: https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.2
 [0.11.1]: https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.1
 
 <!-- 0.11.0 was released to npm without a git tag, so it links to npm. -->
