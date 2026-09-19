@@ -37,6 +37,7 @@ All values are **per 1M tokens** in the configured currency.
 - [How it works](#how-it-works)
 - [Background: why the generation API detour?](#background-why-the-generation-api-detour)
 - [Dependencies](#dependencies)
+- [License](#license)
 
 ## Installation
 
@@ -359,3 +360,7 @@ API is therefore the only reliable source for provider and billed amount.
 `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent` and
 `@earendil-works/pi-tui` are bundled by Pi and are therefore only declared as
 optional `peerDependencies`. No runtime dependencies on other extensions.
+
+## License
+
+[MIT](./LICENSE) – see [`LICENSE`](./LICENSE).
