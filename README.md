@@ -11,6 +11,11 @@
 Shows the **effective token prices (input/output, per 1M tokens)** of the
 **last API call** in the Pi status bar – right next to the session cost sum.
 
+> **Only OpenRouter is supported today.** Real billed rates and the
+> serving-provider tag are resolved exclusively through OpenRouter's generation
+> API – other providers are not queried. See
+> [Supported providers](#supported-providers).
+
 Unlike the core footer's cost sum, these are the rates **actually billed by
 OpenRouter** (including provider routing, discounts and peak overrides), not the
 catalogue prices from `models-store.json`. For OpenRouter models the **serving
@@ -33,6 +38,7 @@ All values are **per 1M tokens** in the configured currency.
 
 ## Contents
 
+- [Supported providers](#supported-providers)
 - [Installation](#installation)
 - [Setup](#setup)
   - [Without pi-powerline-footer](#without-pi-powerline-footer)
@@ -47,6 +53,23 @@ All values are **per 1M tokens** in the configured currency.
 - [Dependencies](#dependencies)
 - [Changelog](#changelog)
 - [License](#license)
+
+## Supported providers
+
+**Currently only OpenRouter is fully supported.** The real billed rate and the
+serving-provider tag come from OpenRouter's generation API; no other provider is
+queried. On every other provider the item still renders, but it falls back to
+Pi's catalogue computation (`usage.cost.*`) and shows **no** provider tag.
+
+| Provider | Status | Billed rate | Serving-provider tag |
+| --- | --- | --- | --- |
+| **OpenRouter** (`openrouter`) | ✅ Full support | Real amount from the generation API (`total_cost`), catalogue rates only as fallback/preview | ✅ |
+| Any other provider | ⚠️ Fallback only | Pi catalogue (`usage.cost.*`) – no real billed rate, no generation-API call | ❌ |
+| Subscription-backed (OAuth, `kimi-coding`) | ⛔ Hidden | – | – |
+
+Adding another provider requires a billing/provider source equivalent to
+OpenRouter's generation API plus the endpoint price lists; see
+[How it works](#how-it-works).
 
 ## Installation
 

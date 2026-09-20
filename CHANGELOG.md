@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The README now states up front that only OpenRouter is supported, with a
+  [Supported providers](./README.md#supported-providers) table that lists the
+  current status per provider (OpenRouter: full support; other providers:
+  catalogue fallback without provider tag; subscriptions: hidden).
+
 ## [0.12.0] - 2026-09-19
 
 ### Changed
