@@ -13,10 +13,17 @@
  * Chunk shape (OpenRouter via the `openai-completions` API):
  *
  *   { id: "gen-...", model, provider: "Fireworks", usage?: { cost, is_byok,
- *     cost_details: { upstream_inference_cost }, ... } }
+ *     cost_details: { upstream_inference_cost, upstream_inference_prompt_cost,
+ *                     upstream_inference_completions_cost }, ... } }
  *
  * `provider` is present on every chunk, `usage` only on the final one, sent just
  * before `[DONE]` (OpenRouter's usage accounting is always on).
+ *
+ * `cost_details` also splits the upstream invoice into its prompt and completion
+ * part (checked against a live stream); both fields cover *all* prompt tokens, so
+ * a cache read is already priced into `promptCost`. They are captured as the
+ * provider-side split basis of the billed amount; the display does not use them
+ * yet - it still derives the in/out split from the provider's endpoint prices.
  *
  * Entries are keyed by the **request** model and consumed by the caller on
  * `message_end`, so a finished call can never be attributed twice; `reset` is
@@ -30,6 +37,15 @@ export interface StreamCallInfo {
   totalCost: number | null;
   /** Amount the upstream provider charged in USD (`cost_details`). */
   upstreamCost: number | null;
+  /**
+   * Upstream cost of the whole prompt in USD (`cost_details`), cached tokens
+   * included. Together with `completionsCost` this is the provider-side split of
+   * `upstreamCost`; separating the cache buckets inside it still needs the
+   * provider's cache prices.
+   */
+  promptCost: number | null;
+  /** Upstream cost of the completion in USD (`cost_details`). */
+  completionsCost: number | null;
   /** The request used the account's own provider key instead of credits. */
   byok: boolean;
   /** Provider-side generation id (`gen-...`). */
@@ -42,6 +58,8 @@ interface ChunkInfo {
   responseId?: string;
   totalCost?: number;
   upstreamCost?: number;
+  promptCost?: number;
+  completionsCost?: number;
   byok?: boolean;
 }
 
@@ -72,6 +90,12 @@ function parseChunk(data: unknown): ChunkInfo | null {
     const upstream = numberOrNull(details?.upstream_inference_cost);
     if (upstream !== null) info.upstreamCost = upstream;
 
+    const promptCost = numberOrNull(details?.upstream_inference_prompt_cost);
+    if (promptCost !== null) info.promptCost = promptCost;
+
+    const completionsCost = numberOrNull(details?.upstream_inference_completions_cost);
+    if (completionsCost !== null) info.completionsCost = completionsCost;
+
     if (typeof usage.is_byok === "boolean") info.byok = usage.is_byok;
   }
 
@@ -91,6 +115,8 @@ export class StreamCallBuffer {
       provider: chunk.provider ?? previous?.provider ?? null,
       totalCost: chunk.totalCost ?? previous?.totalCost ?? null,
       upstreamCost: chunk.upstreamCost ?? previous?.upstreamCost ?? null,
+      promptCost: chunk.promptCost ?? previous?.promptCost ?? null,
+      completionsCost: chunk.completionsCost ?? previous?.completionsCost ?? null,
       byok: chunk.byok ?? previous?.byok ?? false,
       responseId: chunk.responseId ?? previous?.responseId ?? null,
     });

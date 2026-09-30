@@ -5,7 +5,10 @@
  * carries none (session restore, aborted stream, older Pi) and to throttle the
  * fallback REST call. An entry is either
  * - `stream`     – read from the response itself (`provider_stream_event`), the
- *                 normal path; refreshed on every response,
+ *                 normal path; refreshed on every response. Stored in two steps:
+ *                 the provider as soon as the response is handled (`setProvider`),
+ *                 its rates once the price lookup returned (`setRates`), so a
+ *                 pending lookup cannot delay the switch detection,
  * - `routing`    – derived statically from the model's `openRouterRouting.only`
  *                 constraint (no call, never expires), or
  * - `generation` – resolved once via the generation API and reused for the next
@@ -196,6 +199,52 @@ export class ProviderCache {
       promptCount: this.promptCount(model),
       ...(rates ? { inputRate: rates.input, outputRate: rates.output } : {}),
     });
+    void this.persist();
+  }
+
+  /**
+   * Records the serving provider of a response *without* waiting for its rates
+   * (see `setRates`). Used by the stream path, where the provider is known from
+   * the response itself while the prices still need a lookup: the provider must
+   * be stored before that lookup, otherwise the next response compares against
+   * an outdated entry and a provider switch between two responses can be missed.
+   *
+   * Rates of the *same* provider are kept - they still describe this provider and
+   * keep the displayed values stable until the new rates arrive. A switch drops
+   * them: they belong to the previous provider and must not be attributed to the
+   * new one.
+   */
+  setProvider(model: string, provider: string, source: ProviderSource): void {
+    const previous = this.entries.get(model);
+    const sameProvider = previous !== undefined
+      && previous.provider.trim().toLowerCase() === provider.trim().toLowerCase();
+
+    const entry: ProviderCacheEntry = {
+      provider,
+      source,
+      fetchedAt: Date.now(),
+      promptCount: this.promptCount(model),
+    };
+    if (sameProvider && previous) {
+      if (previous.inputRate !== undefined) entry.inputRate = previous.inputRate;
+      if (previous.outputRate !== undefined) entry.outputRate = previous.outputRate;
+    }
+
+    this.entries.set(model, entry);
+    void this.persist();
+  }
+
+  /**
+   * Adds the rates of an already stored provider (see `setProvider`). Ignored
+   * when the entry meanwhile belongs to another provider, so a late price lookup
+   * cannot attach its rates to the wrong one.
+   */
+  setRates(model: string, provider: string, rates: { input: number; output: number }): void {
+    const entry = this.entries.get(model);
+    if (!entry) return;
+    if (entry.provider.trim().toLowerCase() !== provider.trim().toLowerCase()) return;
+
+    this.entries.set(model, { ...entry, inputRate: rates.input, outputRate: rates.output });
     void this.persist();
   }
 

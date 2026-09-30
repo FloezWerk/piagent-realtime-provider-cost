@@ -30,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider bills you directly, so the upstream amount
   (`upstream_inference_cost`) is now used as the billed amount. Cache entries
   written by an older version are re-resolved once (cache version 3).
+- The provider-switch highlight is reliable again. The switch is decided from the
+  response itself, *before* the prices of that call are looked up: the price
+  lookup (endpoint price list, up to a network round trip) used to run first, so a
+  switch was missed when the next response arrived during it - and the highlight
+  could end up on that later response instead. The serving provider is now also
+  cached before its prices are known, so two consecutive responses are always
+  compared with each other.
+- Rates of the previous provider are no longer carried over to a new one: when the
+  prices of a call cannot be derived (no endpoint prices for the serving provider,
+  missing API key, no billed amount), the last rates of the *same* provider stay
+  displayed instead of the rates that belonged to the provider before the switch.
 - A resolution that was still running when the session ended no longer ends a
   non-interactive run (`pi -p`) with a stale-context error: rendering stops once
   the extension is torn down, and a failed resolution can no longer reject.

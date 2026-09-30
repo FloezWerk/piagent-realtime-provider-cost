@@ -201,6 +201,26 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     render(ctx);
   }
 
+  /**
+   * Applies the provider a response reported itself (`provider_stream_event`).
+   * Fully synchronous - no `await` between the switch decision and the render -
+   * and records the provider before its rates are known (see `setProvider`), so
+   * the next response compares against the provider of this one.
+   *
+   * The cache is loaded before the first message is handled: `session_start` and
+   * `before_agent_start` await `ensureCacheLoaded()`.
+   */
+  function applyStreamProvider(
+    ctx: ExtensionContext,
+    target: RateSnapshot,
+    key: string,
+    provider: string,
+  ): void {
+    if (providerChanged(key, provider)) switchHighlight = true;
+    providerCache.setProvider(key, provider, "stream");
+    applyProvider(ctx, target, provider, "stream");
+  }
+
   /** Applies rates derived from the real billed amount. */
   function applyRates(
     ctx: ExtensionContext,
@@ -261,6 +281,10 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    * only run when a response carries nothing (session restore, aborted stream,
    * Pi without that event).
    *
+   * Only the *rates* of step 1 wait for the provider price list (the billed amount
+   * is one total, the in/out split needs the provider's prices). The switch
+   * decision itself is made before that lookup - see `applyStreamProvider`.
+   *
    * Step 4 only runs on a cache miss, after the cache entry expired (see
    * `providerCache.get` / `providerCacheRefreshPrompts`) or when the model just
    * changed (`force`). A valid cache entry covers the whole refresh window even
@@ -307,15 +331,27 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     //    stream chunks. Consumed here, so it cannot be reused for a later call.
     const call = streamCalls.take(key);
     if (call?.provider) {
+      // Switch detection, cache and render run *before* the price lookup below:
+      // it can take a network round trip (endpoint price list), and a response
+      // finishing in that window would then compare against the cache entry of
+      // the previous call - the switch would be missed, and the highlight could
+      // be applied to the wrong (later) call. Everything up to the render is
+      // synchronous, so the decision cannot interleave with another response.
+      applyStreamProvider(ctx, target, key, call.provider);
+
       const rates = await billedRates(ctx, key, call, target);
-      const cachedRates = cachedRatesFor(key);
+      if (rates) {
+        providerCache.setRates(key, call.provider, rates);
+        applyRates(ctx, target, rates.input, rates.output);
+        return;
+      }
 
-      if (providerChanged(key, call.provider)) switchHighlight = true;
-      providerCache.set(key, call.provider, "stream", rates ?? cachedRates);
-      applyProvider(ctx, target, call.provider, "stream");
-
-      const applied = rates ?? cachedRates;
-      if (applied) applyRates(ctx, target, applied.input, applied.output);
+      // No rate for this call (no endpoint prices for that provider, missing API
+      // key, no billed amount, ...): the last rates of the *same* provider stay
+      // displayed. After a provider switch there are none, so the catalogue-derived
+      // value remains until the prices are known.
+      const known = cachedRatesFor(key);
+      if (known) applyRates(ctx, target, known.input, known.output);
       return;
     }
 
@@ -394,12 +430,15 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         info.providerName ?? target.upstreamProvider ?? cached?.provider ?? null;
 
       // Same computation as in the stream path; the provider is only known once
-      // the lookup returned, hence the duplication.
+      // the lookup returned, hence the duplication. The generation endpoint has no
+      // per-bucket cost split, so the prompt/completion parts stay unknown here.
       const rates = info.providerName
         ? await billedRates(ctx, key, {
           provider: info.providerName,
           totalCost: info.totalCost,
           upstreamCost: info.upstreamCost,
+          promptCost: null,
+          completionsCost: null,
           byok: info.byok,
           responseId,
         }, target)
