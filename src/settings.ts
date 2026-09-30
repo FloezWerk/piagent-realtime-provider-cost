@@ -59,22 +59,14 @@ export interface ExtensionSettings {
   /** Colour spec used briefly after a serving-provider switch was detected. */
   switchColor: string;
   /**
-   * Resolve the actual OpenRouter serving provider (routing constraint or
-   * generation API). Generation results are cached per model.
+   * Resolve the serving provider and the real prices from the response itself
+   * (off: catalogue prices, no provider tag, no lookups at all).
    */
   lookupUpstreamProvider: boolean;
-  /**
-   * Number of user prompts **on the same model** after which a generation-based
-   * cache entry is refreshed (routing entries never expire). Prompts on other
-   * models do not age the entry. 0 = always refresh.
-   */
-  providerCacheRefreshPrompts: number;
   /** SGR attributes for the catalogue-deviation colours (input/output icons). */
   deviationStyle: DeviationStyle;
   /** Percentage thresholds for the deviation colours (green/yellow/orange). */
   deviationThresholds: DeviationThresholds;
-  /** Announce every automatic generation-API request (with reason) via notify. */
-  notifyGenerationLookup: boolean;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -85,12 +77,9 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   // Bold gold makes the switch highlight stand out against the terminal palette.
   switchColor: "bold:#ffd700",
   lookupUpstreamProvider: true,
-  providerCacheRefreshPrompts: 10,
   // Plain colour on the arrows; the numbers stay in the base colour.
   deviationStyle: "plain",
   deviationThresholds: DEFAULT_DEVIATION_THRESHOLDS,
-  // Off by default; the lookup is frequent and the notify would be noisy.
-  notifyGenerationLookup: false,
 };
 
 /** Validates the threshold object, filling in defaults for missing/invalid entries. */
@@ -155,19 +144,9 @@ export async function loadSettings(): Promise<ExtensionSettings> {
       typeof section.lookupUpstreamProvider === "boolean"
         ? section.lookupUpstreamProvider
         : DEFAULT_SETTINGS.lookupUpstreamProvider,
-    providerCacheRefreshPrompts:
-      typeof section.providerCacheRefreshPrompts === "number" &&
-      Number.isFinite(section.providerCacheRefreshPrompts) &&
-      section.providerCacheRefreshPrompts >= 0
-        ? Math.floor(section.providerCacheRefreshPrompts)
-        : DEFAULT_SETTINGS.providerCacheRefreshPrompts,
     deviationStyle:
       normalizeDeviationStyle(section.deviationStyle) ?? DEFAULT_SETTINGS.deviationStyle,
     deviationThresholds: normalizeDeviationThresholds(section.deviationThresholds),
-    notifyGenerationLookup:
-      typeof section.notifyGenerationLookup === "boolean"
-        ? section.notifyGenerationLookup
-        : DEFAULT_SETTINGS.notifyGenerationLookup,
   };
 }
 

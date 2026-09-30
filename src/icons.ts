@@ -30,10 +30,6 @@ const ASCII_ICONS: PriceIcons = {
   output: "out:",
 };
 
-/** "update in progress" indicator shown while the provider is being resolved. */
-const PENDING_ICON = "\u27F3"; // ⟳
-const PENDING_ICON_ASCII = "...";
-
 /** Nerd Font detection: explicit env override first, then terminal heuristics. */
 export function hasNerdFonts(): boolean {
   if (process.env.PROVIDER_COST_NERD_FONTS === "1") return true;
@@ -63,9 +59,4 @@ export function resolveIconMode(mode: IconMode): "nerd" | "ascii" {
 
 export function getPriceIcons(mode: IconMode = "auto"): PriceIcons {
   return resolveIconMode(mode) === "ascii" ? ASCII_ICONS : ARROW_ICONS;
-}
-
-/** Icon shown while the serving provider is still being resolved. */
-export function getPendingIcon(mode: IconMode = "auto"): string {
-  return resolveIconMode(mode) === "ascii" ? PENDING_ICON_ASCII : PENDING_ICON;
 }

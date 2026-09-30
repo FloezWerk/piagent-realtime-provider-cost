@@ -4,7 +4,7 @@
 
 import { colorize } from "./color.ts";
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
-import { getPendingIcon, getPriceIcons, type IconMode } from "./icons.ts";
+import { getPriceIcons, type IconMode } from "./icons.ts";
 import { upstreamTag, type RateSnapshot } from "./pricing.ts";
 
 /**
@@ -73,10 +73,8 @@ export function formatPrice(amountUsd: number | null, currency: CurrencyCode, ra
  *
  * Format: `<in-icon><out-icon>` arrows plus an optional trailing
  * ` (<provider>)` tag, e.g. `↑$2/↓$12 (Fir)`.
- * The tag is only appended for OpenRouter. While the generation-API lookup is
- * running, a "update in progress" icon is shown instead of hiding the tag; for a
- * mere catalogue preview (model just switched) it is `?`; if the provider stays
- * unknown after the call, the tag is omitted entirely.
+ * The tag is only appended for OpenRouter. For a mere catalogue preview (model
+ * just switched) it is `?`; if the provider stays unknown, the tag is omitted.
  */
 export function composeStatus(
   snapshot: RateSnapshot,
@@ -91,9 +89,7 @@ export function composeStatus(
   const base = `${paint(icons.input, colors.input ?? colors.base)}${input}/`
     + `${paint(icons.output, colors.output ?? colors.base)}${output}`;
 
-  const tag = snapshot.providerPending
-    ? getPendingIcon(iconMode)
-    : upstreamTag(snapshot) ?? previewTag(snapshot);
+  const tag = upstreamTag(snapshot) ?? previewTag(snapshot);
   return tag ? `${base} ${paint(`(${tag})`, colors.base)}` : base;
 }
 

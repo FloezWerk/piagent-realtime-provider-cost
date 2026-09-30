@@ -12,19 +12,19 @@ Shows the **effective token prices (input/output, per 1M tokens)** of the
 **last API call** in the Pi status bar – right next to the session cost sum.
 
 > **Only OpenRouter is supported today.** Real billed rates and the
-> serving-provider tag are resolved exclusively through OpenRouter's generation
-> API – other providers are not queried. See
+> serving-provider tag come from the OpenRouter response itself (chunk metadata);
+> other providers are not queried. See
 > [Supported providers](#supported-providers).
 
 Unlike the core footer's cost sum, these are the rates **actually billed by
 OpenRouter** (including provider routing, discounts and peak overrides), not the
-catalogue prices from `models-store.json`. For OpenRouter models the **serving
-provider** is appended as a tag.
+catalogue prices from `models-store.json`. For OpenRouter models the provider
+**inside OpenRouter** that served the call is appended as a tag (e.g. `Fir` for
+Fireworks).
 
 ```
 ↑$2/↓$12 (Fir)    # arrows (Unicode, full size in every font), tag = Fireworks
 in:$2/out:$12     # ASCII mode (icons: ascii)
-↑$2/↓$12 (⟳)      # provider/costs are currently resolved via the generation API
 ↑$1.5/↓$6 (?)     # model just switched: catalogue prices, provider not known yet
 ```
 
@@ -49,7 +49,7 @@ All values are **per 1M tokens** in the configured currency.
   - [Icons](#icons)
   - [Rounding](#rounding)
 - [How it works](#how-it-works)
-- [Background: why the generation API detour?](#background-why-the-generation-api-detour)
+- [Background: where the data comes from](#background-where-the-data-comes-from)
 - [Dependencies](#dependencies)
 - [Changelog](#changelog)
 - [License](#license)
@@ -57,19 +57,18 @@ All values are **per 1M tokens** in the configured currency.
 ## Supported providers
 
 **Currently only OpenRouter is fully supported.** The real billed rate and the
-serving-provider tag come from OpenRouter's generation API; no other provider is
-queried. On every other provider the item still renders, but it falls back to
+serving-provider tag come from OpenRouter's response metadata; no other provider
+is queried. On every other provider the item still renders, but it falls back to
 Pi's catalogue computation (`usage.cost.*`) and shows **no** provider tag.
 
 | Provider | Status | Billed rate | Serving-provider tag |
 | --- | --- | --- | --- |
-| **OpenRouter** (`openrouter`) | ✅ Full support | Real amount from the generation API (`total_cost`), catalogue rates only as fallback/preview | ✅ |
-| Any other provider | ⚠️ Fallback only | Pi catalogue (`usage.cost.*`) – no real billed rate, no generation-API call | ❌ |
+| **OpenRouter** (`openrouter`) | ✅ Full support | Real amount from the response (`usage.cost`, BYOK: `upstream_inference_cost`), catalogue rates only as fallback/preview | ✅ |
+| Any other provider | ⚠️ Fallback only | Pi catalogue (`usage.cost.*`) – no real billed rate | ❌ |
 | Subscription-backed (OAuth, `kimi-coding`) | ⛔ Hidden | – | – |
 
-Adding another provider requires a billing/provider source equivalent to
-OpenRouter's generation API plus the endpoint price lists; see
-[How it works](#how-it-works).
+Adding another provider requires the same metadata in its stream chunks plus
+per-provider price lists; see [How it works](#how-it-works).
 
 ## Installation
 
@@ -154,92 +153,50 @@ Explicit positioning right next to `cost` via `powerline.layout`:
 
 ## Colours
 
-There are two layers:
+Two layers, set via `/provider-cost` or the settings:
 
-1. **Deviation colour coding.** The effective rate is compared with the model's
-**catalogue price** (`models-store.json`); the colour shows the deviation. What
-gets coloured are the **icons/arrows** (in and out separately); the numbers
-themselves stay in the base colour so they remain readable on dark backgrounds.
-The provider tag is also in the base colour.
-
-   Thresholds are configurable (setting `deviationThresholds`, command
-   `/provider-cost threshold …`); the percentages below are the defaults:
+1. **Deviation colouring** – the effective rate is compared with the model's
+   **catalogue price** (`models-store.json`). The **icons** carry the colour (in
+   and out separately); the numbers and the provider tag stay in the base colour,
+   which keeps them readable on dark backgrounds.
 
    | Deviation from catalogue price | Colour |
    | --- | --- |
-   | more than `green` % **cheaper** (< −10 %) | **green** |
-   | up to `yellow` % more expensive (0 % < x ≤ 10 %) | **yellow** |
-   | `yellow`–`orange` % more expensive (> 10 % and ≤ 20 %) | **orange** (256-colour 208) |
-   | more than `orange` % more expensive (> 20 %) | **red** |
-   | otherwise (0 %, up to `green` % cheaper, or no catalogue price known) | base colour |
+   | more than `green` % cheaper (default > 10 %) | **green** |
+   | up to `yellow` % more expensive (default ≤ 10 %) | **yellow** |
+   | up to `orange` % more expensive (default ≤ 20 %) | **orange** (256-colour 208) |
+   | above `orange` % | **red** |
+   | 0 %, less than `green` % cheaper, or no catalogue price | base colour |
 
-   The comparison uses the **displayed precision**: both rates are rounded to the
-   4 decimals the status line shows (in the display currency) before the
-   deviation is computed. A rate that renders identically to the catalogue price
-   therefore keeps the base colour - this swallows the binary-float noise of the
-   invoice-derived rates (e.g. an effective `0.20000000000000004` versus the
-   catalogue `0.2`, both shown as `$0.2`). A difference must be visible in the
-   numbers to get a colour.
+   Thresholds via `deviationThresholds` or
+   `/provider-cost threshold <green|yellow|orange> <pct>`. Compared at the
+   **displayed precision** (4 decimals in the display currency), so a rate that
+   renders like the catalogue price keeps the base colour – that swallows the
+   binary-float noise of the invoice-derived rates. `deviationStyle` /
+   `/provider-cost style` adds SGR attributes to the icon: `plain` (default),
+   `bold`, `reverse`.
 
-   > In and out are coloured **individually** (e.g. input arrow green, output
-   > arrow red). If there is no effective price or no catalogue price (e.g. `?`),
-   > the base colour stays.
+2. **Base/switch colour** – `color` (default `white`) for everything else;
+   `switchColor` (default `bold:#ffd700`) paints the **whole** item when a
+   **provider switch** is detected, for one prompt, overriding the deviation
+   colours.
 
-   Example: `↑`green `$2` / `↓`red `$12` (numbers white).
-
-   **Readability.** A terminal cannot draw an outline/stroke around glyphs (pure
-   font rendering). Therefore the **icon** carries the deviation colour and the
-   number stays neutral. `deviationStyle` controls the icon's SGR attributes:
-
-   | `deviationStyle` | Effect |
-   | --- | --- |
-   | `plain` (default) | plain foreground colour on the arrow |
-   | `bold` | arrow bolder/brighter (`SGR 1`) |
-   | `reverse` | arrow as a coloured block (`SGR 7`) |
-
-   Set via `/provider-cost style <plain|bold|reverse>` or setting
-   `deviationStyle`.
-
-2. **Base/switch colour** for everything else. **White** by default; when a
-**provider switch** is detected the **whole** item is drawn **bold gold**
-(`bold:#ffd700`) for one prompt and overrides the deviation colours. Set via
-`/provider-cost color …` / `/provider-cost switchColor …` or the settings
-`color` / `switchColor`.
-
-Colour specs are freely choosable:
-
-| Syntax | Example | Result |
-| --- | --- | --- |
-| Palette | `white`, `yellow`, `orange`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/38;5;208/91/92/96/95/94/90 |
-| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
-| 256-colour | `226` (0-255) | `38;5;n` |
-| Bold | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<colour>` |
-| Reverse | `reverse:red`, `reverse:orange` | `7;<colour>` (colour becomes the background) |
-| Combined | `bold:reverse:red` | `1;7;<colour>` |
-
-These are **not** CSS names and **not** theme names (`warning`, `error`, …) from
-the Pi/Powerline theme world – the extension colours in ANSI itself so it can
-switch dynamically (see `selfColorize` above).
-
-Common alternatives for the switch highlight:
-
-```bash
-/provider-cost switchColor bold:#ffd700   # default: bold gold (truecolor)
-/provider-cost switchColor bold:220       # gold, 256-colour (available everywhere)
-/provider-cost switchColor bold:226       # pure yellow, 256-colour
-/provider-cost switchColor bold:yellow    # bold bright yellow
-/provider-cost color none                 # no colouring at all
-```
+Specs: palette (`white`, `yellow`, `orange`, `red`, `green`, `cyan`, `magenta`,
+`blue`, `gray`, `none`), hex (`#ffd700`, `#fd0`), 256-colour (`226`), with
+attributes (`bold:…`, `reverse:…`, combinable: `bold:reverse:red`). These are
+ANSI specs, not CSS or Pi/Powerline theme names (`warning`, `error`, …): the
+extension colours its own text so the switch can be dynamic – inside
+pi-powerline-footer that needs `selfColorize: true` (see [Setup](#setup)).
 
 ## Commands
 
 | Command | Effect |
 | --- | --- |
-| `/provider-cost` or `/provider-cost status` | State, currency, icons, colours, lookup+refresh interval, display, tag/source, cache age in prompts |
+| `/provider-cost` or `/provider-cost status` | State, currency, icons, colours, lookup state, display, tag/source, cache entry |
 | `/provider-cost on` | Enable the display (persisted) |
 | `/provider-cost off` | Disable the display (persisted) |
 | `/provider-cost toggle` | Toggle (persisted) |
-| `/provider-cost refresh` | Reload exchange rates **and** re-resolve provider/costs via the generation API (if possible) |
+| `/provider-cost refresh` | Reload exchange rates **and** re-resolve provider/costs of the last call |
 | `/provider-cost currency <CODE>` | Set the display currency (persisted) |
 | `/provider-cost icons <auto\|nerd\|ascii>` | Set the icon mode (persisted) |
 | `/provider-cost color <spec>` | Set the base colour, e.g. `white`, `#ffd700`, `226`, `bold:yellow` (persisted, see [Colours](#colours)) |
@@ -247,7 +204,6 @@ Common alternatives for the switch highlight:
 | `/provider-cost style <plain\|bold\|reverse>` | Attributes of the deviation colour on the in/out icon (persisted; default `plain`) |
 | `/provider-cost threshold <green\|yellow\|orange> <pct>` | Set a deviation threshold in percent (persisted; defaults 10/10/20) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider resolution on/off; `refresh` clears the provider **and** pricing cache and re-resolves |
-| `/provider-cost notify <on\|off>` | Notification for every automatic generation-API request (persisted; default `off`) |
 
 ## Configuration
 
@@ -265,9 +221,7 @@ also be set via a command.
     "switchColor": "bold:#ffd700",
     "deviationStyle": "plain",
     "deviationThresholds": { "green": 10, "yellow": 10, "orange": 20 },
-    "lookupUpstreamProvider": true,
-    "providerCacheRefreshPrompts": 10,
-    "notifyGenerationLookup": false
+    "lookupUpstreamProvider": true
   }
 }
 ```
@@ -281,22 +235,27 @@ also be set via a command.
 | `switchColor` | `"bold:#ffd700"` | Colour right after a detected provider change |
 | `deviationStyle` | `"plain"` | SGR attributes of the deviation colour on the icon: `plain`, `bold`, `reverse` |
 | `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Percentage thresholds: below `-green` green, up to `yellow` yellow, up to `orange` orange, above red (all ≥ 0) |
-| `lookupUpstreamProvider` | `true` | Provider/cost resolution active (routing constraint + cache + generation API) |
-| `providerCacheRefreshPrompts` | `10` | After this many **prompts** (user turns) **on the same model** a `generation` cache entry is refreshed; `0` = always re-resolve |
-| `notifyGenerationLookup` | `false` | Notify before every automatic generation-API request (with reason) |
+| `lookupUpstreamProvider` | `true` | Resolve the serving provider and the real prices (response stream, routing constraint, cache, generation API for a restored session). `off` = catalogue prices, no provider tag |
 
 ### Icons
 
-1. Env `PROVIDER_COST_NERD_FONTS=1` (nerd) / `=0` (ascii)
-2. Config `icons`
-3. `auto`: heuristic like Powerline (`GHOSTTY_RESOURCES_DIR` or
-   `TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku)
+| `icons` | Arrows |
+| --- | --- |
+| `auto` (default) | `↑`/`↓` when the terminal looks Nerd-Font capable, otherwise `in:`/`out:` |
+| `nerd` | `↑`/`↓` always |
+| `ascii` | `in:`/`out:` always |
 
-Many terminals only set `TERM=xterm-256color` → `auto` yields ASCII
-(`in:`/`out:`); for icons use `icons: "nerd"` or `/provider-cost icons nerd`.
+`auto` uses Powerline's heuristic: `GHOSTTY_RESOURCES_DIR` set, or
+`TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku. Many
+terminals only set `TERM=xterm-256color` and therefore get ASCII - pick `nerd`
+explicitly in that case.
 
-> The previously used Nerd Font arrows (`U+F090`/`U+F08B`) were replaced by
-> `↑`/`↓` because private-use glyphs are rendered noticeably smaller.
+Set the mode with the `icons` setting or `/provider-cost icons <mode>`. The env
+var wins for a single run: `PROVIDER_COST_NERD_FONTS=1` forces nerd, `=0` forces
+ascii.
+
+Plain arrows instead of Nerd Font glyphs: private-use icons (`U+F090`/`U+F08B`)
+are rendered noticeably smaller by most fonts.
 
 ### Rounding
 
@@ -305,121 +264,96 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
 
 ## How it works
 
-- **Real billing instead of catalogue price.** The source of the numbers is
-  OpenRouter: the **generation API** returns `total_cost` (actually charged) and
-  the token counts, and the **endpoint prices** provide the bucket ratio
-  (input/output/cache) of the provider that actually served the request:
+The numbers come from the **response itself**, not from a price list: OpenRouter
+puts the serving provider into every stream chunk and the billed amount with its
+prompt/completion split into the final usage chunk. Pi drops both while
+normalizing - `provider_stream_event` (pi 0.99+) hands them over before that, so
+provider and prices are known **per response**, without a request.
 
-  ```
-  modelled = prompt*in + completion*out
-           + cacheWrite*cacheWriteTokens + cacheRead*cacheReadTokens   (from endpoint prices)
-  factor   = total_cost / modelled          # discounts, peak overrides, price changes
-  in-rate  = prompt * factor                (USD per 1M tokens)
-  out-rate = completion * factor
-  ```
+```mermaid
+flowchart TD
+  A[Response] -->|"stream data"| Z["Display: provider tag + real rates<br/>per response, no request"]
+  A -->|"no stream data (restored session)"| C["Routing constraint<br/>only + allow_fallbacks: false"]
+  C --> D["Provider cache<br/>last known provider/rates"]
+  D -->|"complete entry"| Z
+  D -->|"nothing to answer"| E["Generation API<br/>one attempt, restore only"]
+  E --> Z
+```
 
-  The `factor` makes the display match the invoice even when endpoint prices do
-  not (yet) exactly match the billed rate. As long as no API data is available,
-  the approximation from `usage.cost.*` (Pi catalogue) is shown.
+**Rates from the invoice.** The billed amount arrives split into its prompt and
+completion part (`usage.cost_details.*`), so the rates are exact:
 
-  All billed buckets count towards `modelled`, including the cached prompt
-  tokens: OpenRouter reports the uncached prompt part as `input`, so a call whose
-  prompt is mostly a cache write would otherwise produce a factor far above 1
-  (and therefore absurdly high displayed rates).
+```
+out-rate = completions_cost / completion_tokens            (USD per 1M tokens)
+in-rate  = prompt_cost / (in + wWrite*cacheWrite + wRead*cacheRead)
+```
 
-- **Resolution.** Order:
-  1. **Routing constraint** from `models.json`
-     (`providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`)
-     – only counts as *certain* when `allow_fallbacks: false` is set. With
-     `allow_fallbacks: true` (OpenRouter default) another provider may serve even
-     if `only` names exactly one.
-  2. **Persistent rate cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
-     key = request model. Entries expire after `providerCacheRefreshPrompts`
-     **prompts on the same model** (not by time), so activity on other models
-     does not age them. The file also stores, per model, the prompt counter of
-     the last generation-API attempt (any outcome).
-  3. **Generation API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
-     – returns the provider **and** the real amount, at most 1 call per model at a
-     time. Data is only available a few seconds after the call → retry with
-     backoff (1s/2s/4s/8s). Meanwhile an **"update in progress" icon** (`⟳`) is
-     shown instead of the provider tag.
+`prompt_cost` covers **every** prompt token, so cached tokens are weighted by
+their price *relation* to the input price (`wRead`/`wWrite`, from the endpoint
+prices). Without cached prompt tokens nothing has to be looked up:
 
-  **When is the API called?**
-  - Provider *certain* (one `only` entry **and** `allow_fallbacks: false`) →
-    once on the first call, afterwards only every N prompts on that model (rate
-    cache).
-  - Provider *not certain* (`allow_fallbacks: true` or no `only`) → also once
-    per cache window: the cached entry covers the whole window, because it
-    reflects the provider that actually served the request.
-  - **Free models** (`:free`, zero endpoint prices) → same as above. No
-    per-token rate can be derived from a zero invoice, so the entry is cached
-    **without** rates and stays valid for the full window instead of forcing a
-    request per prompt.
-  - **Model switch** (different request model than the previous call) → forced
-    refresh of provider **and** costs, even if the cache would still be fresh. A
-    session restore with the same model is not a switch.
-  - **Failed lookup** (endpoint returns nothing: 404 right after the call,
-    timeout, ...) → the attempt re-arms the cache window too, so a request that
-    yielded no result is retried at most once per window, not once per prompt.
-    The last known entry stays in use meanwhile.
+```mermaid
+sequenceDiagram
+  participant S as Provider stream
+  participant E as Extension
+  participant O as OpenRouter
+  S->>E: provider, billed amount, split (final chunk)
+  E->>E: switch decision and rates, synchronous
+  opt cached prompt tokens
+    E->>O: endpoint prices (ratios only)
+  end
+```
 
-  **Notification.** (Optional, default **off**: setting
-  `notifyGenerationLookup` or `/provider-cost notify on`.) Every automatically
-  triggered generation-API request is reported as a notify, including the reason
-  in parentheses, e.g.
-  `Generation API: resolving provider/costs for deepseek/… (cache miss).`
-  Reasons: `cache miss`, `cache expired (N prompts)`, `cache without rates`,
-  `stale cache`, `model switch`, `manual refresh` (`/provider-cost refresh`),
-  `cache cleared` (`/provider-cost lookup refresh`).
+Without such a split (restore, generation API) the billed total is split by the
+provider's endpoint prices instead: `factor = billed / modelled`,
+`rate = price * factor`. Those prices are used at the **long-context tier** that
+applies to the call (`pricing.overrides`), and every billed bucket counts -
+including the cached prompt tokens, which OpenRouter reports outside `input`.
 
-- **Preview on model switch.** When the model is switched (`model_select`), the
-  **catalogue prices** (`models-store.json`) of the new model are shown
-  immediately. The serving provider is not known at that point yet (the first
-  call of the new model is still running) → the tag shows `?`. As soon as the
-  first response arrives, the real value (including provider tag, or `⟳` while
-  resolving) replaces the preview. Tiered pricing is not applied in the preview –
-  without token counts only the base rates are known.
-  - **`/provider-cost refresh`** → reloads the exchange rates **and** forces a
-    generation-API call (provider + costs) when possible (OpenRouter,
-    `lookupUpstreamProvider` active, `responseId` present, no lookup already
-    running). Clear the cache first with `/provider-cost lookup refresh`.
+**Details**
 
-  The prompt counters are persisted per model in the cache and survive restarts.
-  Example with `providerCacheRefreshPrompts: 10`: resolution on the 1st prompt
-  of a model, then again after the 10th further prompt **on that model**.
+- **BYOK** (request served through your own provider key): OpenRouter charges
+  nothing and the provider invoices you directly, so the upstream amount is used -
+  never `$0/$0`.
+- **Routing constraint** (`models.json` →
+  `providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`):
+  counts as *certain* only with `allow_fallbacks: false` - otherwise another
+  provider may serve even a single `only` entry.
+- **Generation API** (`/api/v1/generation?id=<responseId>`): **restore-only** -
+  one attempt, only when the cache has nothing to answer with (it covers one
+  response at a time). Live calls, model switches and aborted streams never
+  trigger it; a failed lookup keeps the last known values.
+- **Caches**: `provider-cache.json` (provider + rates per model; every response
+  overwrites its entry, so nothing expires) and `endpoint-pricing.json` (provider
+  price lists, 24 h). `/provider-cost lookup refresh` clears both.
+- **Model switch**: the catalogue prices of the new model appear immediately with
+  a `?` tag until its first response replaces them.
+- **Update timing**: the item changes on `message_end` only, when the final chunk
+  has been seen - while streaming the last known value stays.
+- **Not computable** (e.g. `usage.input == 0`, missing exchange rate) → `?` per
+  side; **free models** → `$0/$0`; **subscription providers** → item hidden.
+- **Currency** mirrors `pi-powerline-footer` (same source, 24 h cache, own file);
+  the session cost sum next to it stays Pi's own catalogue value.
+- **Background work**: a resolution runs in the background and stops rendering
+  once the session is gone, so it can never affect a run (`pi -p` included).
 
-- **Invalidation by call counter:** there is no signal that reveals a provider
-  switch per response (model slug, `system_fingerprint`, `native_finish_reason`,
-  `service_tier` are provider-independent). With a certain provider it is stable
-  in the short term, so resolving every N prompts suffices; otherwise it is
-  queried per response.
-- **Two caches:** `provider-cache.json` (provider + rates per model) and
-  `endpoint-pricing.json` (provider price lists, 24 h). `/provider-cost lookup refresh`
-  clears both.
-- **No batch endpoint:** OpenRouter offers neither multiple IDs nor a generations
-  list; `/api/v1/activity` requires a management key.
-- **While streaming** the last known value stays; it is only updated on
-  `message_end`.
-- **Failover:** if one side is not computable (e.g. `usage.input == 0`) or the
-  conversion rate is missing, `?` is shown per side.
-- **Subscription providers** (OAuth or `kimi-coding`) → the item is hidden.
-- **Free models** are shown as `$0/$0`.
-- **Currency conversion** mirrors `pi-powerline-footer` (same source, 24h cache,
-  own file `…/realtime-provider-cost/currency-rates.json`); independent of
-  Powerline.
-- **No interference with Pi:** the extension replaces neither the footer nor the
-  cost calculation; the session cost sum next to it remains Pi's catalogue value.
+## Background: where the data comes from
 
-## Background: why the generation API detour?
+OpenRouter delivers the provider that served the request in the stream chunk as a
+`provider` field and the amount it charged in the final usage chunk. Pi
+(`pi-ai`) drops both while normalizing: it reads only `chunk.id` and `chunk.model`
+from a chunk, and computes costs from its own price table (`models-store.json`),
+which reflects the **model base price**, not the price of the routed provider
+(example `deepseek/deepseek-v4.1-flash` via Fireworks: catalogue 0.15/0.60 vs.
+real 0.22/0.66). No provider header exists either (`X-Provider-Name` is only
+listed as "exposed" but is not sent).
 
-OpenRouter delivers the serving provider in the stream chunk as a `provider`
-field, but Pi (`pi-ai`) discards it (it only reads `chunk.id` and `chunk.model`).
-Pi likewise discards the actual cost amount (`usage.cost`) and computes costs from
-the price table (`models-store.json`) – which reflects the **model base price**,
-not the price of the routed provider (example `deepseek/deepseek-v4.1-flash` via
-Fireworks: catalogue 0.15/0.60 vs. real 0.22/0.66). No provider header exists
-(`X-Provider-Name` is only listed as "exposed" but is not sent). The generation
-API is therefore the only reliable source for provider and billed amount.
+Since pi 0.99 the raw chunk is reachable before normalization through the
+`provider_stream_event` extension event, which is what this extension uses. The
+[generation API](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation)
+is kept for the one case without stream data - the last call of a **restored
+session**; it needs a separate request, is published with a delay of up to a
+minute and returns the same provider and amount.
 
 ## Dependencies
 
