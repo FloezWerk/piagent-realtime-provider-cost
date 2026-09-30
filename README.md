@@ -153,82 +153,40 @@ Explicit positioning right next to `cost` via `powerline.layout`:
 
 ## Colours
 
-There are two layers:
+Two layers, set via `/provider-cost` or the settings:
 
-1. **Deviation colour coding.** The effective rate is compared with the model's
-**catalogue price** (`models-store.json`); the colour shows the deviation. What
-gets coloured are the **icons/arrows** (in and out separately); the numbers
-themselves stay in the base colour so they remain readable on dark backgrounds.
-The provider tag is also in the base colour.
-
-   Thresholds are configurable (setting `deviationThresholds`, command
-   `/provider-cost threshold …`); the percentages below are the defaults:
+1. **Deviation colouring** – the effective rate is compared with the model's
+   **catalogue price** (`models-store.json`). The **icons** carry the colour (in
+   and out separately); the numbers and the provider tag stay in the base colour,
+   which keeps them readable on dark backgrounds.
 
    | Deviation from catalogue price | Colour |
    | --- | --- |
-   | more than `green` % **cheaper** (< −10 %) | **green** |
-   | up to `yellow` % more expensive (0 % < x ≤ 10 %) | **yellow** |
-   | `yellow`–`orange` % more expensive (> 10 % and ≤ 20 %) | **orange** (256-colour 208) |
-   | more than `orange` % more expensive (> 20 %) | **red** |
-   | otherwise (0 %, up to `green` % cheaper, or no catalogue price known) | base colour |
+   | more than `green` % cheaper (default > 10 %) | **green** |
+   | up to `yellow` % more expensive (default ≤ 10 %) | **yellow** |
+   | up to `orange` % more expensive (default ≤ 20 %) | **orange** (256-colour 208) |
+   | above `orange` % | **red** |
+   | 0 %, less than `green` % cheaper, or no catalogue price | base colour |
 
-   The comparison uses the **displayed precision**: both rates are rounded to the
-   4 decimals the status line shows (in the display currency) before the
-   deviation is computed. A rate that renders identically to the catalogue price
-   therefore keeps the base colour - this swallows the binary-float noise of the
-   invoice-derived rates (e.g. an effective `0.20000000000000004` versus the
-   catalogue `0.2`, both shown as `$0.2`). A difference must be visible in the
-   numbers to get a colour.
+   Thresholds via `deviationThresholds` or
+   `/provider-cost threshold <green|yellow|orange> <pct>`. Compared at the
+   **displayed precision** (4 decimals in the display currency), so a rate that
+   renders like the catalogue price keeps the base colour – that swallows the
+   binary-float noise of the invoice-derived rates. `deviationStyle` /
+   `/provider-cost style` adds SGR attributes to the icon: `plain` (default),
+   `bold`, `reverse`.
 
-   > In and out are coloured **individually** (e.g. input arrow green, output
-   > arrow red). If there is no effective price or no catalogue price (e.g. `?`),
-   > the base colour stays.
+2. **Base/switch colour** – `color` (default `white`) for everything else;
+   `switchColor` (default `bold:#ffd700`) paints the **whole** item when a
+   **provider switch** is detected, for one prompt, overriding the deviation
+   colours.
 
-   Example: `↑`green `$2` / `↓`red `$12` (numbers white).
-
-   **Readability.** A terminal cannot draw an outline/stroke around glyphs (pure
-   font rendering). Therefore the **icon** carries the deviation colour and the
-   number stays neutral. `deviationStyle` controls the icon's SGR attributes:
-
-   | `deviationStyle` | Effect |
-   | --- | --- |
-   | `plain` (default) | plain foreground colour on the arrow |
-   | `bold` | arrow bolder/brighter (`SGR 1`) |
-   | `reverse` | arrow as a coloured block (`SGR 7`) |
-
-   Set via `/provider-cost style <plain|bold|reverse>` or setting
-   `deviationStyle`.
-
-2. **Base/switch colour** for everything else. **White** by default; when a
-**provider switch** is detected the **whole** item is drawn **bold gold**
-(`bold:#ffd700`) for one prompt and overrides the deviation colours. Set via
-`/provider-cost color …` / `/provider-cost switchColor …` or the settings
-`color` / `switchColor`.
-
-Colour specs are freely choosable:
-
-| Syntax | Example | Result |
-| --- | --- | --- |
-| Palette | `white`, `yellow`, `orange`, `red`, `green`, `cyan`, `magenta`, `blue`, `gray`, `none` | SGR 97/93/38;5;208/91/92/96/95/94/90 |
-| Hex (truecolor) | `#ffd700`, `#fd0` | `38;2;r;g;b` |
-| 256-colour | `226` (0-255) | `38;5;n` |
-| Bold | `bold:yellow`, `bold:#ffd700`, `bold:226` | `1;<colour>` |
-| Reverse | `reverse:red`, `reverse:orange` | `7;<colour>` (colour becomes the background) |
-| Combined | `bold:reverse:red` | `1;7;<colour>` |
-
-These are **not** CSS names and **not** theme names (`warning`, `error`, …) from
-the Pi/Powerline theme world – the extension colours in ANSI itself so it can
-switch dynamically (see `selfColorize` above).
-
-Common alternatives for the switch highlight:
-
-```bash
-/provider-cost switchColor bold:#ffd700   # default: bold gold (truecolor)
-/provider-cost switchColor bold:220       # gold, 256-colour (available everywhere)
-/provider-cost switchColor bold:226       # pure yellow, 256-colour
-/provider-cost switchColor bold:yellow    # bold bright yellow
-/provider-cost color none                 # no colouring at all
-```
+Specs: palette (`white`, `yellow`, `orange`, `red`, `green`, `cyan`, `magenta`,
+`blue`, `gray`, `none`), hex (`#ffd700`, `#fd0`), 256-colour (`226`), with
+attributes (`bold:…`, `reverse:…`, combinable: `bold:reverse:red`). These are
+ANSI specs, not CSS or Pi/Powerline theme names (`warning`, `error`, …): the
+extension colours its own text so the switch can be dynamic – inside
+pi-powerline-footer that needs `selfColorize: true` (see [Setup](#setup)).
 
 ## Commands
 
