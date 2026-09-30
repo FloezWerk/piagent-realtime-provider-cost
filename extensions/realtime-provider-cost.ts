@@ -172,14 +172,20 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   }
 
   /**
-   * True when the newly resolved provider differs from the previously known one.
-   * Compared case-insensitively: routing constraints use lower-case ids
-   * (`fireworks`) while the generation API returns display names (`Fireworks`).
+   * Case-insensitive provider comparison: routing constraints use lower-case ids
+   * (`fireworks`) while the stream and the generation API return display names
+   * (`Fireworks`).
    */
+  function sameProvider(first: string | null, second: string | null): boolean {
+    if (!first || !second) return false;
+    return first.trim().toLowerCase() === second.trim().toLowerCase();
+  }
+
+  /** True when the newly resolved provider differs from the previously known one. */
   function providerChanged(model: string, provider: string): boolean {
-    const previous = providerCache.peek(model)?.provider;
+    const previous = providerCache.peek(model)?.provider ?? null;
     if (!previous) return false;
-    return previous.trim().toLowerCase() !== provider.trim().toLowerCase();
+    return !sameProvider(previous, provider);
   }
 
   function applyProvider(
@@ -187,11 +193,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     target: RateSnapshot,
     provider: string,
     source: ProviderSource,
+    byok?: boolean,
   ): void {
     if (snapshot !== target) return;
 
     target.upstreamProvider = provider;
     target.providerSource = source;
+    // Undefined when the source cannot know it (e.g. a routing constraint).
+    if (byok !== undefined) target.byok = byok;
     render(ctx);
   }
 
@@ -211,16 +220,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     key: string,
     provider: string,
     rates: { input: number; output: number } | null,
+    byok: boolean,
   ): void {
     if (providerChanged(key, provider)) switchHighlight = true;
-    providerCache.setProvider(key, provider, "stream");
+    providerCache.setProvider(key, provider, "stream", byok);
     if (rates) {
       providerCache.setRates(key, provider, rates);
       // Written before the render below, so provider and prices appear together
       // instead of the catalogue value flashing up first.
       writeRates(target, rates.input, rates.output);
     }
-    applyProvider(ctx, target, provider, "stream");
+    applyProvider(ctx, target, provider, "stream", byok);
   }
 
   /** Writes real rates into the snapshot, without rendering. */
@@ -357,7 +367,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       // place, so the common case (no cached prompt tokens) renders provider *and*
       // prices in one synchronous step, without any request.
       const sync = streamRates(call, target, null);
-      applyStreamProvider(ctx, target, key, call.provider, sync);
+      applyStreamProvider(ctx, target, key, call.provider, sync, call.byok);
       if (sync) return;
 
       // Rates that need the endpoint prices: cached prompt tokens have to be
@@ -403,7 +413,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     //    is what a restored call is answered with; with rates the entry is complete.
     const cached = providerCache.peek(key);
     if (cached) {
-      if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
+      if (!target.upstreamProvider) {
+        applyProvider(ctx, target, cached.provider, cached.source, cached.byok);
+      } else if (cached.byok === true && sameProvider(target.upstreamProvider, cached.provider)) {
+        // Provider already known (routing constraint); the cache still knows that
+        // this provider billed through your own key.
+        target.byok = true;
+        render(ctx);
+      }
 
       const cachedRates = cachedRatesFor(key);
       if (cachedRates) {
@@ -449,8 +466,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       }
 
       if (provider) {
-        providerCache.set(key, provider, "generation", rates);
-        applyProvider(ctx, target, provider, "generation");
+        providerCache.set(key, provider, "generation", rates, info.byok);
+        applyProvider(ctx, target, provider, "generation", info.byok);
       }
 
       if (rates) applyRates(ctx, target, rates.input, rates.output);

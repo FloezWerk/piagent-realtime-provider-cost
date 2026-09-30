@@ -4,7 +4,7 @@
 
 import { colorize } from "./color.ts";
 import { CURRENCY_SYMBOLS, type CurrencyCode } from "./currency.ts";
-import { getPriceIcons, type IconMode } from "./icons.ts";
+import { getByokIcon, getPriceIcons, type IconMode } from "./icons.ts";
 import { upstreamTag, type RateSnapshot } from "./pricing.ts";
 
 /**
@@ -72,7 +72,9 @@ export function formatPrice(amountUsd: number | null, currency: CurrencyCode, ra
  * Builds the status text. Values are per 1M tokens.
  *
  * Format: `<in-icon><out-icon>` arrows plus an optional trailing
- * ` (<provider>)` tag, e.g. `↑$2/↓$12 (Fir)`.
+ * ` (<provider>)` tag, e.g. `↑$2/↓$12 (Fir)` - with a BYOK marker after the three
+ * letters (`↑$2/↓$12 (Fir🔑)`) when the call was billed through your own
+ * provider key.
  * The tag is only appended for OpenRouter. For a mere catalogue preview (model
  * just switched) it is `?`; if the provider stays unknown, the tag is omitted.
  */
@@ -89,7 +91,10 @@ export function composeStatus(
   const base = `${paint(icons.input, colors.input ?? colors.base)}${input}/`
     + `${paint(icons.output, colors.output ?? colors.base)}${output}`;
 
-  const tag = upstreamTag(snapshot) ?? previewTag(snapshot);
+  const provider = upstreamTag(snapshot);
+  const tag = provider
+    ? `${provider}${snapshot.byok ? getByokIcon(iconMode) : ""}`
+    : previewTag(snapshot);
   return tag ? `${base} ${paint(`(${tag})`, colors.base)}` : base;
 }
 

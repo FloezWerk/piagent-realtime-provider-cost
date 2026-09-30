@@ -24,6 +24,7 @@ Fireworks).
 
 ```
 ↑$2/↓$12 (Fir)    # arrows (Unicode, full size in every font), tag = Fireworks
+↑$2/↓$12 (Fir🔑)  # BYOK: the call ran on your own provider key (`*` in ASCII mode)
 in:$2/out:$12     # ASCII mode (icons: ascii)
 ↑$1.5/↓$6 (?)     # model just switched: catalogue prices, provider not known yet
 ```
@@ -250,6 +251,9 @@ also be set via a command.
 terminals only set `TERM=xterm-256color` and therefore get ASCII - pick `nerd`
 explicitly in that case.
 
+The BYOK marker follows the same mode: `🔑` next to the arrows, `*` in ASCII mode
+(see [How it works](#how-it-works)).
+
 Set the mode with the `icons` setting or `/provider-cost icons <mode>`. The env
 var wins for a single run: `PROVIDER_COST_NERD_FONTS=1` forces nerd, `=0` forces
 ascii.
@@ -314,7 +318,9 @@ including the cached prompt tokens, which OpenRouter reports outside `input`.
 
 - **BYOK** (request served through your own provider key): OpenRouter charges
   nothing and the provider invoices you directly, so the upstream amount is used -
-  never `$0/$0`.
+  never `$0/$0`. Such a call is marked inside the provider tag (`(Fir🔑)`, `*` in
+  ASCII mode); the flag is stored in the cache, so the marker survives a session
+  restore.
 - **Routing constraint** (`models.json` →
   `providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`):
   counts as *certain* only with `allow_fallbacks: false` - otherwise another

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- BYOK calls are marked inside the provider tag: `↑$2/↓$12 (Fir🔑)` means the call
+  ran on your own provider key (OpenRouter charged nothing for it), `*` instead of
+  the key in ASCII icon mode. The flag is stored in the provider cache, so the
+  marker also appears after a session restore.
+
 ### Changed
 
 - Serving provider and billed amount now come from the response itself: OpenRouter

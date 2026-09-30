@@ -37,6 +37,12 @@ export interface ProviderCacheEntry {
   /** Real effective rates (USD per 1M tokens) when known. */
   inputRate?: number;
   outputRate?: number;
+  /**
+   * The call was billed through your own provider key (BYOK) instead of
+   * OpenRouter credits. Kept so a restored call can show the marker without
+   * knowing the response anymore.
+   */
+  byok?: boolean;
 }
 
 interface CacheFile {
@@ -84,6 +90,7 @@ export class ProviderCache {
 
         const inputRate = value.inputRate;
         const outputRate = value.outputRate;
+        const byok = value.byok;
         if (
           dropZeroRates
           && source === "generation"
@@ -99,6 +106,7 @@ export class ProviderCache {
           fetchedAt,
           ...(typeof inputRate === "number" && Number.isFinite(inputRate) ? { inputRate } : {}),
           ...(typeof outputRate === "number" && Number.isFinite(outputRate) ? { outputRate } : {}),
+          ...(typeof byok === "boolean" ? { byok } : {}),
         });
       }
     } catch {
@@ -116,12 +124,14 @@ export class ProviderCache {
     provider: string,
     source: ProviderSource,
     rates?: { input: number; output: number } | null,
+    byok?: boolean,
   ): void {
     this.entries.set(model, {
       provider,
       source,
       fetchedAt: Date.now(),
       ...(rates ? { inputRate: rates.input, outputRate: rates.output } : {}),
+      ...(byok !== undefined ? { byok } : {}),
     });
     void this.persist();
   }
@@ -136,9 +146,14 @@ export class ProviderCache {
    * Rates of the *same* provider are kept - they still describe this provider and
    * keep the displayed values stable until the new rates arrive. A switch drops
    * them: they belong to the previous provider and must not be attributed to the
-   * new one.
+   * new one. The BYOK state follows the same rule.
    */
-  setProvider(model: string, provider: string, source: ProviderSource): void {
+  setProvider(
+    model: string,
+    provider: string,
+    source: ProviderSource,
+    byok?: boolean,
+  ): void {
     const previous = this.entries.get(model);
     const sameProvider = previous !== undefined
       && previous.provider.trim().toLowerCase() === provider.trim().toLowerCase();
@@ -152,6 +167,9 @@ export class ProviderCache {
       if (previous.inputRate !== undefined) entry.inputRate = previous.inputRate;
       if (previous.outputRate !== undefined) entry.outputRate = previous.outputRate;
     }
+
+    const flag = byok ?? (sameProvider ? previous?.byok : undefined);
+    if (flag !== undefined) entry.byok = flag;
 
     this.entries.set(model, entry);
     void this.persist();

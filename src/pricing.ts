@@ -80,6 +80,11 @@ export interface RateSnapshot {
   /** Origin of `upstreamProvider`, or null when unknown. */
   providerSource: ProviderSource | null;
   /**
+   * The call was billed through your own provider key (BYOK, `is_byok`) instead of
+   * OpenRouter credits; shown as a marker inside the provider tag.
+   */
+  byok: boolean;
+  /**
    * Token buckets of the call, needed to split the real billed amount. For
    * OpenRouter `input` excludes the cached prompt tokens, which arrive in the
    * separate `cacheRead`/`cacheWrite` buckets.
@@ -254,6 +259,7 @@ export function snapshotFromMessage(
     responseId: typeof message.responseId === "string" && message.responseId ? message.responseId : null,
     upstreamProvider: null,
     providerSource: null,
+    byok: false,
     tokens: {
       input: message.usage.input,
       output: message.usage.output,
@@ -300,6 +306,7 @@ export function snapshotFromModel(
     responseId: null,
     upstreamProvider: null,
     providerSource: null,
+    byok: false,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     ratesFromApi: false,
     cataloguePreview: true,

@@ -60,3 +60,19 @@ export function resolveIconMode(mode: IconMode): "nerd" | "ascii" {
 export function getPriceIcons(mode: IconMode = "auto"): PriceIcons {
   return resolveIconMode(mode) === "ascii" ? ASCII_ICONS : ARROW_ICONS;
 }
+
+/**
+ * BYOK marker, appended to the provider tag: the call ran on your own provider
+ * key, so OpenRouter credits were not charged (see `usage.is_byok`).
+ *
+ * `\u{1F511}` is an RGI emoji, so it measures two terminal cells everywhere
+ * (pi-tui and the terminal agree) - unlike e.g. `\u{1F5DD}`, which is measured as
+ * one cell but usually drawn as two.
+ */
+const BYOK_ICON = "\u{1F511}"; // 🔑
+const BYOK_ICON_ASCII = "*";
+
+/** Marker for a call billed through your own provider key (BYOK). */
+export function getByokIcon(mode: IconMode = "auto"): string {
+  return resolveIconMode(mode) === "ascii" ? BYOK_ICON_ASCII : BYOK_ICON;
+}
