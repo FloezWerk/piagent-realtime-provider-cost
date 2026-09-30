@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Serving provider and billed amount now come from the response itself: OpenRouter
+  puts the provider into every stream chunk and the charged amount into the final
+  usage chunk, and the `provider_stream_event` event (pi 0.99+) delivers both
+  before Pi normalizes them away. No generation-API request, no retry backoff and
+  no `⟳` waiting state on the normal path, and a provider switch is visible per
+  response instead of once per cache window. The generation API is now only a
+  fallback for responses without stream data (session restore, aborted stream,
+  older Pi).
+- Long-context price tiers are honoured when splitting the billed amount: the
+  endpoint prices are used at the tier that applies to the call
+  (`pricing.overrides`, e.g. `qwen/qwen3.7-flash` on Alibaba from $0.03 to $0.10
+  per 1M input tokens above 32k prompt tokens). The endpoint-price cache is
+  re-fetched once (cache version 3) because older entries carry no tiers.
+
+### Fixed
+
+- Calls that OpenRouter serves through your own provider key (BYOK) no longer
+  show `$0/$0`: OpenRouter charges nothing for them (`total_cost: 0`) while the
+  provider bills you directly, so the upstream amount
+  (`upstream_inference_cost`) is now used as the billed amount. Cache entries
+  written by an older version are re-resolved once (cache version 3).
+- A resolution that was still running when the session ended no longer ends a
+  non-interactive run (`pi -p`) with a stale-context error: rendering stops once
+  the extension is torn down, and a failed resolution can no longer reject.
+
 ## [0.12.1] - 2026-09-20
 
 ### Added

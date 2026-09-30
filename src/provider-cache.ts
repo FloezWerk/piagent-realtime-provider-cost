@@ -1,28 +1,39 @@
 /**
  * Persisted per-model cache for the resolved OpenRouter provider.
  *
- * Goal: avoid one REST call per response. An entry is either
- * - `routing`   – derived statically from the model's `openRouterRouting.only`
+ * Goal: keep the last known provider/rates per model available when a response
+ * carries none (session restore, aborted stream, older Pi) and to throttle the
+ * fallback REST call. An entry is either
+ * - `stream`     – read from the response itself (`provider_stream_event`), the
+ *                 normal path; refreshed on every response,
+ * - `routing`    – derived statically from the model's `openRouterRouting.only`
  *                 constraint (no call, never expires), or
  * - `generation` – resolved once via the generation API and reused for the next
  *                 `providerCacheRefreshPrompts` user prompts on that model.
  *
- * Invalidation is prompt-count based (not time based): a generation entry stays
+ * Invalidation is prompt-count based (not time based): a `generation` entry stays
  * valid as long as fewer than N prompts have been submitted **on that model**
  * since it was stored. The per-model prompt counters are persisted so the
- * semantics survive restarts.
+ * semantics survive restarts. `stream` and `routing` entries never expire, they
+ * are replaced by the next response (or the routing constraint).
  *
  * Attempts are tracked per model as well: a generation-API request that yields
  * no result (404 right after the call, timeout, ...) re-arms the window just
  * like a stored entry, so a failed lookup cannot turn into one request per
  * prompt.
+ *
+ * Version 3 drops `generation` entries with zero rates: before the BYOK fix
+ * (`effectiveBilledCost`) a generation billed by the provider instead of
+ * OpenRouter stored `0/0`, which would otherwise stay in use for the whole
+ * window. Dropping them costs one extra lookup; free models resolve to `0/0`
+ * again and are stored as before.
  */
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-export type ProviderSource = "routing" | "generation";
+export type ProviderSource = "stream" | "routing" | "generation";
 
 export interface ProviderCacheEntry {
   provider: string;
@@ -36,7 +47,7 @@ export interface ProviderCacheEntry {
 }
 
 interface CacheFile {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   /** Model -> monotonic count of submitted user prompts on that model. */
   promptCounts?: Record<string, number>;
   /** Legacy (v1): a single global prompt counter, migrated to `promptCounts`. */
@@ -77,6 +88,11 @@ export class ProviderCache {
       const raw: unknown = JSON.parse(await readFile(cachePath(), "utf8"));
       if (!isRecord(raw)) return;
 
+      // A file written before the BYOK fix (version < 3) could carry generation
+      // entries with zero rates (see the module comment): they are re-resolved
+      // once instead of being reused for the rest of their window.
+      const dropZeroRates = raw.version !== 3;
+
       // A v1 file carried one global counter. Entries and attempts are anchored
       // to it and cannot be mapped onto per-model counters, so their anchors are
       // reset: every model then starts with a full window instead of one that
@@ -103,11 +119,20 @@ export class ProviderCache {
         const fetchedAt = value.fetchedAt;
         const promptCount = value.promptCount;
         if (typeof provider !== "string" || !provider.trim()) continue;
-        if (source !== "routing" && source !== "generation") continue;
+        if (source !== "stream" && source !== "routing" && source !== "generation") continue;
         if (typeof fetchedAt !== "number") continue;
 
         const inputRate = value.inputRate;
         const outputRate = value.outputRate;
+        if (
+          dropZeroRates
+          && source === "generation"
+          && inputRate === 0
+          && outputRate === 0
+        ) {
+          continue;
+        }
+
         this.entries.set(model, {
           provider: provider.trim(),
           source,
@@ -137,16 +162,16 @@ export class ProviderCache {
   }
 
   /**
-   * Returns a still-valid entry, or null. `routing` entries never expire;
-   * `generation` entries expire after `refreshPrompts` further prompts **on the
-   * same model**. A failed attempt (see `markAttempt`) re-arms the window, so
-   * the last known provider/costs stay in use instead of being re-resolved per
-   * prompt. Prompts on other models do not age this entry.
+   * Returns a still-valid entry, or null. `stream` and `routing` entries never
+   * expire; `generation` entries expire after `refreshPrompts` further prompts
+   * **on the same model**. A failed attempt (see `markAttempt`) re-arms the
+   * window, so the last known provider/costs stay in use instead of being
+   * re-resolved per prompt. Prompts on other models do not age this entry.
    */
   get(model: string, refreshPrompts: number): ProviderCacheEntry | null {
     const entry = this.entries.get(model);
     if (!entry) return null;
-    if (entry.source === "routing") return entry;
+    if (entry.source === "stream" || entry.source === "routing") return entry;
 
     const anchor = Math.max(entry.promptCount, this.attempts.get(model) ?? 0);
     const age = this.promptCount(model) - anchor;
@@ -210,7 +235,7 @@ export class ProviderCache {
         while (this.dirty) {
           this.dirty = false;
           const payload: CacheFile = {
-            version: 2,
+            version: 3,
             promptCounts: Object.fromEntries(this.counters),
             attempts: Object.fromEntries(this.attempts),
             entries: Object.fromEntries(this.entries),

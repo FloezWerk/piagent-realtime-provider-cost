@@ -41,8 +41,14 @@ export interface ModelRegistryLike {
   isUsingOAuth(model: unknown): boolean;
 }
 
-/** How the serving provider was determined. */
-export type ProviderSource = "routing" | "generation";
+/**
+ * How the serving provider was determined:
+ * - `stream`    – from the response itself (OpenRouter chunk via
+ *                 `provider_stream_event`), the normal path;
+ * - `routing`   – statically from the routing constraint in `models.json`;
+ * - `generation` – via the generation API (fallback, e.g. session restore).
+ */
+export type ProviderSource = "stream" | "routing" | "generation";
 
 export interface RateSnapshot {
   /** Effective input price in USD per 1M tokens, null when not computable. */
@@ -66,13 +72,13 @@ export interface RateSnapshot {
   /** Provider-side response/generation id (`gen-...` for OpenRouter). */
   responseId: string | null;
   /**
-   * Serving provider as determined from the routing constraint or the generation
-   * API, otherwise null (tag hidden).
+   * Serving provider as determined from the response stream, the routing
+   * constraint or the generation API, otherwise null (tag hidden).
    */
   upstreamProvider: string | null;
   /** Origin of `upstreamProvider`, or null when unknown. */
   providerSource: ProviderSource | null;
-  /** OpenRouter provider is currently being resolved via the generation API. */
+  /** OpenRouter provider is being resolved via the generation API (fallback). */
   providerPending: boolean;
   /**
    * Token buckets of the call, needed to split the real billed amount. For
@@ -80,7 +86,7 @@ export interface RateSnapshot {
    * separate `cacheRead`/`cacheWrite` buckets.
    */
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  /** Rates come from the generation API + provider prices instead of the catalogue. */
+  /** Rates come from the response/API + provider prices instead of the catalogue. */
   ratesFromApi: boolean;
   /**
    * Snapshot was built from the catalogue prices of a freshly selected model,

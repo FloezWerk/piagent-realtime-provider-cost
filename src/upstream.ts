@@ -7,15 +7,17 @@
  * generation endpoint:
  *
  *   GET https://openrouter.ai/api/v1/generation?id=<responseId>
- *     -> { data: { provider_name, total_cost, native_tokens_* } }
+ *     -> { data: { provider_name, total_cost, upstream_inference_cost, is_byok,
+ *                  native_tokens_* } }
  *
  * `responseId` is the `gen-...` id that Pi stores on the assistant message
  * (`chunk.id` of the OpenRouter stream). The lookup is optional and failures are
  * swallowed (the caller then falls back to the catalogue-derived numbers).
  *
  * Note: the endpoint has no per-bucket cost split (`cost_details` exists only in
- * the chat-completion usage Pi throws away), so only the *total* cost and the
- * native token counts can be used - see `deriveRealRates`.
+ * the chat-completion usage Pi throws away), so only the *total* cost, the
+ * upstream invoice and the native token counts can be used - see
+ * `deriveRealRates` and `effectiveBilledCost`.
  */
 
 const GENERATION_URL = "https://openrouter.ai/api/v1/generation";
@@ -23,8 +25,19 @@ const GENERATION_URL = "https://openrouter.ai/api/v1/generation";
 export interface GenerationInfo {
   /** Serving provider reported by OpenRouter, e.g. "Fireworks". */
   providerName: string | null;
-  /** Amount billed for this generation in USD. */
+  /**
+   * Amount billed by OpenRouter for this generation in USD. `0` for a BYOK
+   * generation, where OpenRouter bills nothing and the provider charges you
+   * directly (see `upstreamCost`).
+   */
   totalCost: number | null;
+  /**
+   * Amount charged by the upstream provider in USD (`upstream_inference_cost`;
+   * the same value is nested under `cost_details` in the streamed usage).
+   */
+  upstreamCost: number | null;
+  /** The request used your own provider key instead of OpenRouter credits. */
+  byok: boolean;
   /** Token counts as counted by the upstream provider. */
   promptTokens: number | null;
   completionTokens: number | null;
@@ -67,9 +80,14 @@ function parseGeneration(body: unknown): GenerationInfo | null {
       ? data.provider_name.trim()
       : null;
 
+  const costDetails = isRecord(data.cost_details) ? data.cost_details : null;
+
   return {
     providerName,
     totalCost: numberOrNull(data.total_cost),
+    upstreamCost: numberOrNull(data.upstream_inference_cost)
+      ?? numberOrNull(costDetails?.upstream_inference_cost),
+    byok: data.is_byok === true,
     promptTokens: numberOrNull(data.native_tokens_prompt),
     completionTokens: numberOrNull(data.native_tokens_completion),
     cachedTokens: numberOrNull(data.native_tokens_cached),

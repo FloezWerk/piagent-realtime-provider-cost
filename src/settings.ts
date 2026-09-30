@@ -59,21 +59,24 @@ export interface ExtensionSettings {
   /** Colour spec used briefly after a serving-provider switch was detected. */
   switchColor: string;
   /**
-   * Resolve the actual OpenRouter serving provider (routing constraint or
-   * generation API). Generation results are cached per model.
+   * Resolve the provider inside OpenRouter (from the response stream, the
+   * routing constraint or - as a fallback - the generation API).
    */
   lookupUpstreamProvider: boolean;
   /**
-   * Number of user prompts **on the same model** after which a generation-based
-   * cache entry is refreshed (routing entries never expire). Prompts on other
-   * models do not age the entry. 0 = always refresh.
+   * Number of user prompts **on the same model** after which a *fallback*
+   * generation-API entry is refreshed (stream and routing entries never expire).
+   * Prompts on other models do not age the entry. 0 = always refresh.
    */
   providerCacheRefreshPrompts: number;
   /** SGR attributes for the catalogue-deviation colours (input/output icons). */
   deviationStyle: DeviationStyle;
   /** Percentage thresholds for the deviation colours (green/yellow/orange). */
   deviationThresholds: DeviationThresholds;
-  /** Announce every automatic generation-API request (with reason) via notify. */
+  /**
+   * Announce every automatic generation-API request (with reason) via notify.
+   * Only fallback requests can occur (see `providerCacheRefreshPrompts`).
+   */
   notifyGenerationLookup: boolean;
 }
 

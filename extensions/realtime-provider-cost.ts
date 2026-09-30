@@ -4,13 +4,15 @@
  * Shows the effective token prices (input/output, per 1M tokens) of the
  * provider/model of the **last** API call in the status bar.
  *
- * - Prices are derived from the reported `usage.cost.*` (effective price,
- *   including tiers/service tier/routing), not from the static catalogue.
- * - The provider tag shows the serving/routing provider chosen by OpenRouter.
- *   Resolution order (avoiding a REST call where possible):
- *     1. routing constraint `openRouterRouting.only` from models.json (static, 0 calls)
- *     2. persistent provider cache (TTL)
- *     3. generation API (only on cache miss/expiry, with backoff)
+ * - Prices are derived from the amount OpenRouter actually billed (effective
+ *   price, including tiers/service tier/routing), not from the static catalogue.
+ * - The provider tag shows the provider *inside* OpenRouter that served the call.
+ *   Resolution order:
+ *     1. the response itself: `provider_stream_event` carries `provider` on every
+ *        chunk and the billed amount in the final one (no request, per response)
+ *     2. routing constraint `openRouterRouting.only` from models.json (static)
+ *     3. persistent provider cache (last known value)
+ *     4. generation API (fallback for responses without stream data, with backoff)
  * - Converted into the configured currency, mirroring pi-powerline-footer.
  * - The extension is self-contained: without pi-powerline-footer the value
  *   appears as its own footer line; with Powerline it can be placed next to the
@@ -34,7 +36,12 @@ import { COLOR_NAMES, colorize, normalizeColorSpec } from "../src/color.ts";
 import { ensureRatesLoaded, getRate, refreshRates } from "../src/currency.ts";
 import { composeStatus, roundToDisplay, type PriceColors } from "../src/format.ts";
 import { ICON_MODES, normalizeIconMode } from "../src/icons.ts";
-import { clearPricingCache, getProviderPricing } from "../src/endpoint-pricing.ts";
+import {
+  clearPricingCache,
+  getProviderPricing,
+  pricingForPromptTokens,
+  type EndpointPricing,
+} from "../src/endpoint-pricing.ts";
 import { certainRoutingProvider } from "../src/model-routing.ts";
 import {
   deviationColorSpec,
@@ -48,7 +55,7 @@ import {
   type RateSnapshot,
 } from "../src/pricing.ts";
 import { providerCache } from "../src/provider-cache.ts";
-import { deriveRealRates } from "../src/rates.ts";
+import { deriveRealRates, effectiveBilledCost } from "../src/rates.ts";
 import {
   DEFAULT_SETTINGS,
   DEVIATION_STYLES,
@@ -61,6 +68,7 @@ import {
   type DeviationStyle,
   type ExtensionSettings,
 } from "../src/settings.ts";
+import { StreamCallBuffer, type StreamCallInfo } from "../src/stream-usage.ts";
 import { lookupOpenRouterGeneration } from "../src/upstream.ts";
 
 const COMMAND_NAME = "provider-cost";
@@ -91,6 +99,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
   /** requestModel -> in-flight generation lookup guard. */
   const lookupsInFlight = new Set<string>();
+
+  /**
+   * False once the extension is torn down (quit, reload, session replacement).
+   * Resolutions run asynchronously and can outlive the session - rendering then
+   * uses a stale ctx, which Pi rejects (and an unhandled rejection would end a
+   * non-interactive run with a stack trace).
+   */
+  let active = true;
+
+  /** Serving data of the running call, filled from the provider stream. */
+  const streamCalls = new StreamCallBuffer();
 
   function registry(ctx: ExtensionContext): RegistryFacade | undefined {
     return ctx.modelRegistry as unknown as RegistryFacade | undefined;
@@ -148,8 +167,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   }
 
   function render(ctx: ExtensionContext): void {
+    if (!active) return;
     const text = currentText();
-    if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
+    try {
+      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
+    } catch {
+      // The session ended while a resolution was in flight; nothing to render.
+    }
   }
 
   /**
@@ -195,17 +219,54 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   }
 
   /**
+   * Real rates of a call whose serving provider and billed amount are known. The
+   * split basis comes from the endpoint prices of that provider, using the
+   * long-context tier that applies to the call (see `pricingForPromptTokens`);
+   * the billed amount itself stays authoritative.
+   */
+  async function billedRates(
+    ctx: ExtensionContext,
+    key: string,
+    call: StreamCallInfo,
+    target: RateSnapshot,
+  ): Promise<{ input: number; output: number } | null> {
+    if (!call.provider) return null;
+
+    const billed = effectiveBilledCost(call.totalCost, call.upstreamCost, call.byok);
+    if (billed === null) return null;
+
+    const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
+    if (!apiKey) return null;
+
+    const pricing: EndpointPricing | null =
+      (await getProviderPricing(key, apiKey))?.get(call.provider) ?? null;
+    if (!pricing) return null;
+
+    // The thresholds count the whole prompt, cached tokens included.
+    const promptTokens = target.tokens.input + target.tokens.cacheRead + target.tokens.cacheWrite;
+    const real = deriveRealRates(billed, target.tokens, pricingForPromptTokens(pricing, promptTokens));
+    return real ? { input: real.input, output: real.output } : null;
+  }
+
+  /**
    * Resolves provider and real prices for the last call:
-   *   1. statically certain provider (single `only` pin, fallbacks disabled)
-   *   2. cached real rates (refreshed every N prompts)
-   *   3. generation API + provider price list for the actually billed amount
+   *   1. the response itself (OpenRouter chunk, see `streamCalls`)
+   *   2. statically certain provider (single `only` pin, fallbacks disabled)
+   *   3. cached provider/rates of an earlier response
+   *   4. generation API + provider price list (fallback)
    *
-   * Step 3 only runs on a cache miss, after the cache entry expired (see
+   * Step 1 is the normal path: `provider_stream_event` carries the provider on
+   * every chunk and the billed amount in the final one, so no request and no
+   * waiting is involved and a provider switch is visible per response. Steps 2-4
+   * only run when a response carries nothing (session restore, aborted stream,
+   * Pi without that event).
+   *
+   * Step 4 only runs on a cache miss, after the cache entry expired (see
    * `providerCache.get` / `providerCacheRefreshPrompts`) or when the model just
    * changed (`force`). A valid cache entry covers the whole refresh window even
    * when the provider is not certain: with `allow_fallbacks` (OpenRouter
    * default) another provider may serve the request even though `only` lists
-   * just one, but that is exactly what the cached generation result reflects.
+   * just one, but that is exactly what the cached result reflects.
    * An entry without rates counts as valid too: free models never bill a
    * per-token rate, so a missing rate must not turn into a request per prompt.
    * The same holds for a request that returns nothing at all: the attempt itself
@@ -221,6 +282,20 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     target: RateSnapshot,
     options: { force?: boolean; reason?: string } = {},
   ): Promise<void> {
+    // Called as fire-and-forget, so it must never reject: Pi ends a
+    // non-interactive run on an unhandled rejection.
+    try {
+      await resolveProviderInner(ctx, target, options);
+    } catch {
+      // Best-effort: without a resolution the last known values stay in place.
+    }
+  }
+
+  async function resolveProviderInner(
+    ctx: ExtensionContext,
+    target: RateSnapshot,
+    options: { force?: boolean; reason?: string } = {},
+  ): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
 
     const force = options.force === true;
@@ -228,7 +303,23 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     const key = target.requestModel;
     await ensureCacheLoaded();
 
-    // 1) Provider that is guaranteed by the routing constraint (no API call).
+    // 1) The call itself: provider and billed amount were captured from the
+    //    stream chunks. Consumed here, so it cannot be reused for a later call.
+    const call = streamCalls.take(key);
+    if (call?.provider) {
+      const rates = await billedRates(ctx, key, call, target);
+      const cachedRates = cachedRatesFor(key);
+
+      if (providerChanged(key, call.provider)) switchHighlight = true;
+      providerCache.set(key, call.provider, "stream", rates ?? cachedRates);
+      applyProvider(ctx, target, call.provider, "stream");
+
+      const applied = rates ?? cachedRates;
+      if (applied) applyRates(ctx, target, applied.input, applied.output);
+      return;
+    }
+
+    // 2) Provider that is guaranteed by the routing constraint (no API call).
     let certain: string | null = null;
     try {
       certain = certainRoutingProvider(registry(ctx)?.find("openrouter", key));
@@ -236,7 +327,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       certain = null;
     }
 
-    // Prefer the (properly cased) name already known from the generation API.
+    // Prefer the (properly cased) name already known from an earlier response.
     const knownName = providerCache.peek(key)?.provider ?? null;
     const certainName =
       certain && knownName && knownName.trim().toLowerCase() === certain.trim().toLowerCase()
@@ -248,15 +339,12 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       applyProvider(ctx, target, certainName, "routing");
     }
 
-    // 2) Valid cache entry for this model (from an earlier generation lookup).
+    // 3) Valid cache entry for this model (from an earlier response).
     const cached = providerCache.get(key, settings.providerCacheRefreshPrompts);
     if (cached) {
       if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
 
-      const cachedRates =
-        cached.inputRate != null && cached.outputRate != null
-          ? { input: cached.inputRate, output: cached.outputRate }
-          : null;
+      const cachedRates = cachedRatesFor(key);
       if (cachedRates) applyRates(ctx, target, cachedRates.input, cachedRates.output);
 
       // A still-valid entry is enough - for certain routing providers just as
@@ -267,7 +355,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       if (!force) return;
     }
 
-    // 3) Generation API.
+    // 4) Generation API (fallback).
     const responseId = target.responseId;
     if (!responseId || lookupsInFlight.has(key)) return;
 
@@ -305,12 +393,17 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       const provider =
         info.providerName ?? target.upstreamProvider ?? cached?.provider ?? null;
 
-      let rates: { input: number; output: number } | null = null;
-      if (info.providerName && info.totalCost != null) {
-        const pricing = (await getProviderPricing(key, apiKey))?.get(info.providerName) ?? null;
-        const real = deriveRealRates(info.totalCost, target.tokens, pricing);
-        if (real) rates = { input: real.input, output: real.output };
-      }
+      // Same computation as in the stream path; the provider is only known once
+      // the lookup returned, hence the duplication.
+      const rates = info.providerName
+        ? await billedRates(ctx, key, {
+          provider: info.providerName,
+          totalCost: info.totalCost,
+          upstreamCost: info.upstreamCost,
+          byok: info.byok,
+          responseId,
+        }, target)
+        : null;
 
       if (provider) {
         if (providerChanged(key, provider)) switchHighlight = true;
@@ -328,6 +421,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         render(ctx);
       }
     }
+  }
+
+  /** Last known real rates of a model, or null. */
+  function cachedRatesFor(key: string): { input: number; output: number } | null {
+    const entry = providerCache.peek(key);
+    if (!entry || entry.inputRate == null || entry.outputRate == null) return null;
+    return { input: entry.inputRate, output: entry.outputRate };
   }
 
   /** Why a fresh generation-API request is necessary, for the notify text. */
@@ -352,6 +452,23 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     );
   }
 
+  // Serving data of the running call. OpenRouter puts the provider into every
+  // chunk and the billed amount into the final one; Pi drops both before the
+  // message is finalized, so they are captured here, before normalization. The
+  // handler runs in stream order, so it only parses and stores (see
+  // `StreamCallBuffer`).
+  pi.on("provider_stream_event", (event, _ctx: ExtensionContext) => {
+    if (event.provider !== "openrouter") return;
+    streamCalls.record(event.model, event.data);
+  });
+
+  // A new response of a model invalidates a leftover entry of a previous one
+  // (aborted stream, error before any chunk), so no stale data can be applied.
+  pi.on("message_start", (event, _ctx: ExtensionContext) => {
+    const message = event.message;
+    if (message.role === "assistant") streamCalls.reset(message.model);
+  });
+
   // Prompt counter for the prompt-count based cache invalidation. Counted per
   // model: prompts on other models must not age this model's cache entry.
   pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
@@ -360,7 +477,13 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (model) providerCache.bumpPromptCount(model);
   });
 
+  pi.on("session_shutdown", () => {
+    active = false;
+    streamCalls.clear();
+  });
+
   pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    active = true;
     settings = await loadSettings();
     await ensureCacheLoaded();
     if (settings.currency !== "USD") {

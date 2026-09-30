@@ -2,8 +2,9 @@
  * Derives the effective per-1M-token rates of an OpenRouter call from the
  * *actually billed* amount.
  *
- * The generation API reports only the total cost, so the split between the
- * buckets comes from the serving provider's endpoint prices. Their absolute
+ * The generation API reports only one total amount per call (OpenRouter credits
+ * or, for BYOK, the upstream invoice - see `effectiveBilledCost`), so the split
+ * between the buckets comes from the serving provider's endpoint prices. Their absolute
  * level may differ from what was charged (discounts, peak overrides, price
  * changes), which is expressed as a single factor between modelled and billed
  * total. That factor is applied to both displayed buckets (input/output), so the
@@ -37,6 +38,31 @@ export interface RealRates {
 
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Amount a generation actually cost *you*, in USD.
+ *
+ * OpenRouter bills two disjoint ways:
+ * - credits: `totalCost` is the amount charged by OpenRouter (its own price for
+ *   the routed provider, including discounts and tiers).
+ * - BYOK (`is_byok`): the request runs on your own provider key, so OpenRouter
+ *   charges nothing (`totalCost === 0`) and the provider bills you directly -
+ *   the amount is `upstreamCost` (`upstream_inference_cost`, nested under
+ *   `cost_details` in the streamed usage).
+ *
+ * Without this split every BYOK generation resolves to a factor of 0 and is
+ * displayed as `$0/$0`. `0` is a valid amount for free models, hence the
+ * fallbacks instead of a plain null.
+ */
+export function effectiveBilledCost(
+  totalCost: number | null,
+  upstreamCost: number | null,
+  byok: boolean,
+): number | null {
+  if (byok && upstreamCost !== null) return upstreamCost;
+  if (totalCost !== null && totalCost > 0) return totalCost;
+  return upstreamCost ?? totalCost;
 }
 
 export function deriveRealRates(
