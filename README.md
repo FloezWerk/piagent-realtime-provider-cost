@@ -239,16 +239,23 @@ also be set via a command.
 
 ### Icons
 
-1. Env `PROVIDER_COST_NERD_FONTS=1` (nerd) / `=0` (ascii)
-2. Config `icons`
-3. `auto`: heuristic like Powerline (`GHOSTTY_RESOURCES_DIR` or
-   `TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku)
+| `icons` | Arrows |
+| --- | --- |
+| `auto` (default) | `↑`/`↓` when the terminal looks Nerd-Font capable, otherwise `in:`/`out:` |
+| `nerd` | `↑`/`↓` always |
+| `ascii` | `in:`/`out:` always |
 
-Many terminals only set `TERM=xterm-256color` → `auto` yields ASCII
-(`in:`/`out:`); for icons use `icons: "nerd"` or `/provider-cost icons nerd`.
+`auto` uses Powerline's heuristic: `GHOSTTY_RESOURCES_DIR` set, or
+`TERM_PROGRAM`/`TERM` ∈ iterm, wezterm, kitty, ghostty, alacritty, kaku. Many
+terminals only set `TERM=xterm-256color` and therefore get ASCII - pick `nerd`
+explicitly in that case.
 
-> The previously used Nerd Font arrows (`U+F090`/`U+F08B`) were replaced by
-> `↑`/`↓` because private-use glyphs are rendered noticeably smaller.
+Set the mode with the `icons` setting or `/provider-cost icons <mode>`. The env
+var wins for a single run: `PROVIDER_COST_NERD_FONTS=1` forces nerd, `=0` forces
+ascii.
+
+Plain arrows instead of Nerd Font glyphs: private-use icons (`U+F090`/`U+F08B`)
+are rendered noticeably smaller by most fonts.
 
 ### Rounding
 
