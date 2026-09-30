@@ -17,8 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   response instead of once per cache window. The generation API is now only a
   fallback for responses without stream data (session restore, aborted stream,
   older Pi).
-- Long-context price tiers are honoured when splitting the billed amount: the
-  endpoint prices are used at the tier that applies to the call
+- The rates now come from the prompt/completion split of that same usage chunk
+  (`cost_details.upstream_inference_prompt_cost` / `_completions_cost`), so they
+  are exact and appear together with the provider - no request, no waiting. The
+  endpoint price list is only fetched to weight cached prompt tokens (their share
+  is priced inside the prompt cost) and as the split basis for responses without
+  that split; it is a public endpoint, so the lookup no longer resolves an API key.
+- Long-context price tiers are honoured when the rates fall back to the endpoint
+  prices: those are used at the tier that applies to the call
   (`pricing.overrides`, e.g. `qwen/qwen3.7-flash` on Alibaba from $0.03 to $0.10
   per 1M input tokens above 32k prompt tokens). The endpoint-price cache is
   re-fetched once (cache version 3) because older entries carry no tiers.

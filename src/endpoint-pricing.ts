@@ -286,10 +286,14 @@ function toMap(entry: CacheEntry): ProviderPricingMap {
  * Returns the provider price list for a model slug (e.g.
  * `deepseek/deepseek-v4.1-flash`), using the 24h disk cache when possible.
  * Returns null when neither cache nor API is available.
+ *
+ * The endpoint list is public, so `apiKey` is optional and only sent when a
+ * caller already has one: it must not be resolved just for this request (that
+ * would be an asynchronous credential lookup on the price path).
  */
 export async function getProviderPricing(
   modelSlug: string,
-  apiKey: string,
+  apiKey?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ProviderPricingMap | null> {
   const cache = await loadFile();
@@ -298,9 +302,11 @@ export async function getProviderPricing(
   if (fresh) return toMap(entry);
 
   try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
     const response = await fetchImpl(
       `${ENDPOINTS_URL}/${modelSlug}/endpoints`,
-      { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(8000) },
+      { headers, signal: AbortSignal.timeout(8000) },
     );
     if (!response.ok) return entry ? toMap(entry) : null;
 

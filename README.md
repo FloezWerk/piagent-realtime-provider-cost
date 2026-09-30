@@ -306,17 +306,30 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
 ## How it works
 
 - **Real billing instead of catalogue price.** The source of the numbers is the
-  OpenRouter **response itself**: the stream carries the provider on every chunk
-  and the billed amount in its final usage chunk (`usage.cost`, BYOK:
-  `usage.cost_details.upstream_inference_cost`), and the **endpoint prices**
-  provide the bucket ratio (input/output/cache) of the provider that actually
-  served the request:
+  OpenRouter **response itself**: the stream carries the provider on every chunk,
+  and the final usage chunk the billed amount *and* its split into the prompt and
+  completion part (`usage.cost`, `usage.cost_details.*`). The rates therefore come
+  straight from the invoice:
+
+  ```
+  out-rate = completions_cost / completion_tokens            (USD per 1M tokens)
+  in-rate  = prompt_cost / (in + wWrite*cacheWrite + wRead*cacheRead)
+  ```
+
+  `prompt_cost` covers **every** prompt token (a cache read is already priced into
+  it), so cached tokens are weighted by their price *relation* to the input price
+  (`wRead`/`wWrite`, from the endpoint prices) before the uncached input rate is
+  divided out. Without cached prompt tokens the rates need no endpoint prices at
+  all - they are rendered together with the provider, without a request.
+
+  Responses without that split (generation API, older Pi, session restore) fall
+  back to the **endpoint prices** as the split basis of the billed total:
 
   ```
   modelled = prompt*in + completion*out
            + cacheWrite*cacheWriteTokens + cacheRead*cacheReadTokens   (from endpoint prices)
   factor   = total_cost / modelled          # discounts, peak overrides, price changes
-  in-rate  = prompt * factor                (USD per 1M tokens)
+  in-rate  = prompt * factor
   out-rate = completion * factor
   ```
 
@@ -329,24 +342,24 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   tokens above 32k prompt tokens), and splitting a long call with base prices
   would distort the in/out ratio.
 
-  All billed buckets count towards `modelled`, including the cached prompt
+  All billed buckets count towards the invoice, including the cached prompt
   tokens: OpenRouter reports the uncached prompt part as `input`, so a call whose
-  prompt is mostly a cache write would otherwise produce a factor far above 1
-  (and therefore absurdly high displayed rates).
+  prompt is mostly a cache write would otherwise produce absurdly high displayed
+  rates.
 
   **BYOK** (OpenRouter serves the request through your own provider key):
   OpenRouter charges nothing (`total_cost: 0`) and the provider invoices you
-  directly, so the billed amount is the upstream cost
-  (`upstream_inference_cost`). Without that fallback every such call would
-  resolve to `$0/$0`.
+  directly, so the upstream cost is used - `upstream_inference_cost`, or its
+  prompt/completion parts when the response splits them. Without that fallback
+  every such call would resolve to `$0/$0`.
 
 - **Resolution.** Order:
   1. **The response itself** – the `provider_stream_event` extension event
      delivers every parsed chunk before Pi normalizes it, and Pi drops both
      fields the display needs: `provider` (the provider *inside* OpenRouter) on
-     every chunk and the billed amount in the final usage chunk. The provider is
-     therefore known **per response**, without a request and without waiting; a
-     switch between two calls is visible immediately.
+     every chunk and the billed amount in the final usage chunk, including its
+     prompt/completion split. Provider, prices and a switch between two calls are
+     therefore known **per response**, without a request and without waiting.
   2. **Routing constraint** from `models.json`
      (`providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`)
      – only counts as *certain* when `allow_fallbacks: false` is set. With
@@ -419,8 +432,9 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   the provider is stable in the short term, otherwise it is queried once per
   cache window.
 - **Two caches:** `provider-cache.json` (provider + rates per model) and
-  `endpoint-pricing.json` (provider price lists, 24 h). `/provider-cost lookup refresh`
-  clears both.
+  `endpoint-pricing.json` (provider price lists, 24 h - only needed to weight
+  cached prompt tokens and for responses without a cost split).
+  `/provider-cost lookup refresh` clears both.
 - **No batch endpoint:** OpenRouter offers neither multiple IDs nor a generations
   list; `/api/v1/activity` requires a management key. A fallback lookup therefore
   covers one response at a time.

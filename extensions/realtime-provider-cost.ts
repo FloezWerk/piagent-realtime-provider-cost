@@ -6,10 +6,14 @@
  *
  * - Prices are derived from the amount OpenRouter actually billed (effective
  *   price, including tiers/service tier/routing), not from the static catalogue.
+ *   Preferred source is the prompt/completion split that amount comes with
+ *   (`usage.cost_details`, see `src/rates.ts`); the endpoint prices of the serving
+ *   provider are only the fallback split basis (and weight cached prompt tokens).
  * - The provider tag shows the provider *inside* OpenRouter that served the call.
  *   Resolution order:
  *     1. the response itself: `provider_stream_event` carries `provider` on every
- *        chunk and the billed amount in the final one (no request, per response)
+ *        chunk and the billed amount plus its split in the final one (no request,
+ *        per response)
  *     2. routing constraint `openRouterRouting.only` from models.json (static)
  *     3. persistent provider cache (last known value)
  *     4. generation API (fallback for responses without stream data, with backoff)
@@ -41,6 +45,7 @@ import {
   getProviderPricing,
   pricingForPromptTokens,
   type EndpointPricing,
+  type ProviderPricingMap,
 } from "../src/endpoint-pricing.ts";
 import { certainRoutingProvider } from "../src/model-routing.ts";
 import {
@@ -55,7 +60,7 @@ import {
   type RateSnapshot,
 } from "../src/pricing.ts";
 import { providerCache } from "../src/provider-cache.ts";
-import { deriveRealRates, effectiveBilledCost } from "../src/rates.ts";
+import { deriveRealRates, effectiveBilledCost, ratesFromCostSplit } from "../src/rates.ts";
 import {
   DEFAULT_SETTINGS,
   DEVIATION_STYLES,
@@ -202,10 +207,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   }
 
   /**
-   * Applies the provider a response reported itself (`provider_stream_event`).
-   * Fully synchronous - no `await` between the switch decision and the render -
-   * and records the provider before its rates are known (see `setProvider`), so
-   * the next response compares against the provider of this one.
+   * Applies the provider a response reported itself (`provider_stream_event`),
+   * together with its rates when they are already known. Fully synchronous - no
+   * `await` between the switch decision and the render - and records the provider
+   * before its rates are known (see `setProvider`), so the next response compares
+   * against the provider of this one.
    *
    * The cache is loaded before the first message is handled: `session_start` and
    * `before_agent_start` await `ensureCacheLoaded()`.
@@ -215,10 +221,26 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     target: RateSnapshot,
     key: string,
     provider: string,
+    rates: { input: number; output: number } | null,
   ): void {
     if (providerChanged(key, provider)) switchHighlight = true;
     providerCache.setProvider(key, provider, "stream");
+    if (rates) {
+      providerCache.setRates(key, provider, rates);
+      // Written before the render below, so provider and prices appear together
+      // instead of the catalogue value flashing up first.
+      writeRates(target, rates.input, rates.output);
+    }
     applyProvider(ctx, target, provider, "stream");
+  }
+
+  /** Writes real rates into the snapshot, without rendering. */
+  function writeRates(target: RateSnapshot, input: number, output: number): void {
+    target.inputUsdPerMillion = input;
+    target.outputUsdPerMillion = output;
+    target.ratesFromApi = true;
+    // Real rates have arrived -> no longer a catalogue preview.
+    target.cataloguePreview = false;
   }
 
   /** Applies rates derived from the real billed amount. */
@@ -230,42 +252,59 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   ): void {
     if (snapshot !== target) return;
 
-    target.inputUsdPerMillion = input;
-    target.outputUsdPerMillion = output;
-    target.ratesFromApi = true;
-    // Real rates have arrived -> no longer a catalogue preview.
-    target.cataloguePreview = false;
+    writeRates(target, input, output);
     render(ctx);
   }
 
   /**
-   * Real rates of a call whose serving provider and billed amount are known. The
-   * split basis comes from the endpoint prices of that provider, using the
-   * long-context tier that applies to the call (see `pricingForPromptTokens`);
-   * the billed amount itself stays authoritative.
+   * Endpoint price list of a model, or null when it is unavailable. The list is
+   * public, so no API key (and no credential lookup) is needed for it.
    */
-  async function billedRates(
-    ctx: ExtensionContext,
-    key: string,
+  function endpointPricing(key: string): Promise<ProviderPricingMap | null> {
+    return getProviderPricing(key);
+  }
+
+  /**
+   * Real rates of a call, or null when they cannot be derived.
+   *
+   * Preferred source is the prompt/completion split the response itself reports
+   * (`ratesFromCostSplit`): it is the provider-side invoice, so the rates need no
+   * price list at all while nothing was cached. `pricing` is only required to
+   * weight cached prompt tokens (their prices *relative* to the input price) and
+   * as the split basis of the fallback `deriveRealRates`, which works from the
+   * billed total alone (generation API, responses without a split).
+   *
+   * Pure computation: the caller decides whether the price list is needed.
+   */
+  function streamRates(
     call: StreamCallInfo,
     target: RateSnapshot,
-  ): Promise<{ input: number; output: number } | null> {
-    if (!call.provider) return null;
+    pricing: EndpointPricing | null,
+  ): { input: number; output: number } | null {
+    const tokens = target.tokens;
+    // The endpoint thresholds count the whole prompt, cached tokens included.
+    const tiered = pricing
+      ? pricingForPromptTokens(pricing, tokens.input + tokens.cacheRead + tokens.cacheWrite)
+      : null;
+
+    const split = ratesFromCostSplit(call.promptCost, call.completionsCost, tokens, tiered);
+    if (split) return { input: split.input, output: split.output };
 
     const billed = effectiveBilledCost(call.totalCost, call.upstreamCost, call.byok);
     if (billed === null) return null;
 
-    const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
-    if (!apiKey) return null;
-
-    const pricing: EndpointPricing | null =
-      (await getProviderPricing(key, apiKey))?.get(call.provider) ?? null;
-    if (!pricing) return null;
-
-    // The thresholds count the whole prompt, cached tokens included.
-    const promptTokens = target.tokens.input + target.tokens.cacheRead + target.tokens.cacheWrite;
-    const real = deriveRealRates(billed, target.tokens, pricingForPromptTokens(pricing, promptTokens));
+    const real = deriveRealRates(billed, tokens, tiered);
     return real ? { input: real.input, output: real.output } : null;
+  }
+
+  /**
+   * True when the rates of a call can only be derived with the endpoint prices:
+   * the response reported no cost split, or cached prompt tokens are billed inside
+   * the prompt cost and have to be weighted against the input price.
+   */
+  function needsEndpointPricing(call: StreamCallInfo, target: RateSnapshot): boolean {
+    if (call.promptCost === null || call.completionsCost === null) return true;
+    return target.tokens.cacheRead > 0 || target.tokens.cacheWrite > 0;
   }
 
   /**
@@ -337,19 +376,28 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       // the previous call - the switch would be missed, and the highlight could
       // be applied to the wrong (later) call. Everything up to the render is
       // synchronous, so the decision cannot interleave with another response.
-      applyStreamProvider(ctx, target, key, call.provider);
+      //
+      // The rates of the response itself (`cost_details`) come from the same
+      // place, so the common case (no cached prompt tokens) renders provider *and*
+      // prices in one synchronous step, without any request.
+      const sync = streamRates(call, target, null);
+      applyStreamProvider(ctx, target, key, call.provider, sync);
+      if (sync) return;
 
-      const rates = await billedRates(ctx, key, call, target);
+      // Rates that need the endpoint prices: cached prompt tokens have to be
+      // weighted against the input price, or the response carried no cost split.
+      const pricing = needsEndpointPricing(call, target) ? await endpointPricing(key) : null;
+      const rates = pricing ? streamRates(call, target, pricing.get(call.provider) ?? null) : null;
       if (rates) {
         providerCache.setRates(key, call.provider, rates);
         applyRates(ctx, target, rates.input, rates.output);
         return;
       }
 
-      // No rate for this call (no endpoint prices for that provider, missing API
-      // key, no billed amount, ...): the last rates of the *same* provider stay
-      // displayed. After a provider switch there are none, so the catalogue-derived
-      // value remains until the prices are known.
+      // No rate for this call (no endpoint prices for that provider, no billed
+      // amount, ...): the last rates of the *same* provider stay displayed. After a
+      // provider switch there are none, so the catalogue-derived value remains
+      // until the prices are known.
       const known = cachedRatesFor(key);
       if (known) applyRates(ctx, target, known.input, known.output);
       return;
@@ -431,9 +479,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
       // Same computation as in the stream path; the provider is only known once
       // the lookup returned, hence the duplication. The generation endpoint has no
-      // per-bucket cost split, so the prompt/completion parts stay unknown here.
-      const rates = info.providerName
-        ? await billedRates(ctx, key, {
+      // per-bucket cost split, so the provider price list is the split basis here.
+      let rates: { input: number; output: number } | null = null;
+      if (info.providerName) {
+        const pricing = (await endpointPricing(key))?.get(info.providerName) ?? null;
+        rates = streamRates({
           provider: info.providerName,
           totalCost: info.totalCost,
           upstreamCost: info.upstreamCost,
@@ -441,8 +491,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           completionsCost: null,
           byok: info.byok,
           responseId,
-        }, target)
-        : null;
+        }, target, pricing);
+      }
 
       if (provider) {
         if (providerChanged(key, provider)) switchHighlight = true;

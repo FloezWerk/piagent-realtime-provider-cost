@@ -2,13 +2,16 @@
  * Derives the effective per-1M-token rates of an OpenRouter call from the
  * *actually billed* amount.
  *
- * The generation API reports only one total amount per call (OpenRouter credits
- * or, for BYOK, the upstream invoice - see `effectiveBilledCost`), so the split
- * between the buckets comes from the serving provider's endpoint prices. Their absolute
- * level may differ from what was charged (discounts, peak overrides, price
- * changes), which is expressed as a single factor between modelled and billed
- * total. That factor is applied to both displayed buckets (input/output), so the
- * display reproduces the real invoice while keeping the correct in/out ratio.
+ * Two sources, preferred in this order:
+ *
+ * 1. `ratesFromCostSplit` - the prompt/completion split the response itself
+ *    reports (`usage.cost_details.upstream_inference_prompt_cost` /
+ *    `_completions_cost`). It is the provider-side invoice, so the rates are
+ *    exact and available with the response; only cached prompt tokens need the
+ *    provider's cache prices (as a relation, not as an absolute level).
+ * 2. `deriveRealRates` - the billed total, split by the serving provider's
+ *    endpoint prices. Needed for responses without that split (generation API,
+ *    older Pi) and for cached prompt tokens without known cache prices.
  *
  * The modelled total must cover *every* billed bucket: cached prompt tokens are
  * billed too and dominate the invoice when the prompt is mostly a cache write
@@ -65,6 +68,64 @@ export function effectiveBilledCost(
   return upstreamCost ?? totalCost;
 }
 
+/**
+ * Rates from the prompt/completion split of a response.
+ *
+ * `promptCost` covers *every* prompt token (a cache read is already priced into
+ * it), so cached tokens are weighted by their price relation to the input price
+ * before the uncached input rate can be divided out. Only those *relations* come
+ * from `pricing` - the level itself is the invoice, so discounts, tiers and BYOK
+ * pricing need no correction factor here.
+ *
+ * `pricing` may be null while no cached prompt token was billed: both rates are
+ * then exact without any price list. Returns null when the split is unusable
+ * (missing part, no tokens to divide by, cached tokens without prices to weight
+ * them) - the caller then falls back to `deriveRealRates`.
+ */
+export function ratesFromCostSplit(
+  promptCost: number | null,
+  completionsCost: number | null,
+  tokens: TokenBuckets,
+  pricing: EndpointPricing | null,
+): RealRates | null {
+  if (!finite(promptCost) || !finite(completionsCost)) return null;
+  if (!finite(tokens.input) || !finite(tokens.output)) return null;
+  if (!finite(tokens.cacheRead) || !finite(tokens.cacheWrite)) return null;
+  if (!(tokens.output > 0)) return null;
+
+  // Weights of the cached buckets relative to one uncached prompt token.
+  let weightedPrompt = tokens.input;
+  if (tokens.cacheRead > 0 || tokens.cacheWrite > 0) {
+    if (!pricing || !(pricing.prompt > 0)) return null;
+    weightedPrompt += (pricing.cacheRead / pricing.prompt) * tokens.cacheRead;
+    weightedPrompt += (pricing.cacheWrite / pricing.prompt) * tokens.cacheWrite;
+  }
+  if (!(weightedPrompt > 0)) return null;
+
+  const input = (promptCost / weightedPrompt) * 1_000_000;
+  const output = (completionsCost / tokens.output) * 1_000_000;
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return null;
+
+  return {
+    input,
+    output,
+    // Effective vs. listed input price (1 = the invoice matched the price list).
+    factor: pricing && pricing.prompt > 0 ? input / pricing.prompt : 1,
+  };
+}
+
+/**
+ * Rates from a billed total, split by the serving provider's endpoint prices.
+ *
+ * Needed when a response carries no prompt/completion split (generation API,
+ * older Pi, session restore): such a call reports one total amount only
+ * (OpenRouter credits or, for BYOK, the upstream invoice - see
+ * `effectiveBilledCost`). The absolute level of the endpoint prices may differ
+ * from what was charged (discounts, peak overrides, price changes), which is
+ * expressed as a single factor between modelled and billed total. That factor is
+ * applied to both displayed buckets, so the display reproduces the real invoice
+ * while keeping the correct in/out ratio.
+ */
 export function deriveRealRates(
   totalCost: number | null,
   tokens: TokenBuckets,
