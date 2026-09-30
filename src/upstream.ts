@@ -1,23 +1,25 @@
 /**
- * Best-effort lookup of the real serving data for an OpenRouter generation.
+ * Best-effort lookup of the serving data of an OpenRouter generation.
  *
- * Pi does not surface OpenRouter's upstream provider or the actually billed
- * amount for successful calls (it discards `chunk.provider` and `usage.cost` and
- * recomputes costs from its own catalogue). The authoritative source is the
- * generation endpoint:
+ * Only used for a **restored session**: the last assistant message of a branch
+ * carries the generation id (`responseId`, the `gen-...` id of the stream), but
+ * no stream data was captured for it, so provider and billed amount have to be
+ * asked for afterwards:
  *
  *   GET https://openrouter.ai/api/v1/generation?id=<responseId>
- *     -> { data: { provider_name, total_cost, upstream_inference_cost, is_byok,
- *                  native_tokens_* } }
+ *     -> { data: { provider_name, total_cost, upstream_inference_cost, is_byok } }
  *
- * `responseId` is the `gen-...` id that Pi stores on the assistant message
- * (`chunk.id` of the OpenRouter stream). The lookup is optional and failures are
- * swallowed (the caller then falls back to the catalogue-derived numbers).
+ * Every live call is covered by the response itself (`provider_stream_event`,
+ * see `stream-usage.ts`), so this is the only remaining request - and the only
+ * place that needs an API key. It is made on demand (session restore, explicit
+ * re-resolve) and a single attempt is enough: the generation of a restored call
+ * is minutes or hours old, so the endpoint is not queried before it is ready
+ * (which was the reason for the retry backoff the lookup used to have).
  *
  * Note: the endpoint has no per-bucket cost split (`cost_details` exists only in
- * the chat-completion usage Pi throws away), so only the *total* cost, the
- * upstream invoice and the native token counts can be used - see
- * `deriveRealRates` and `effectiveBilledCost`.
+ * the chat-completion usage Pi throws away), so only the total, the upstream
+ * invoice and the BYOK flag can be used - see `deriveRealRates` and
+ * `effectiveBilledCost`.
  */
 
 const GENERATION_URL = "https://openrouter.ai/api/v1/generation";
@@ -38,30 +40,13 @@ export interface GenerationInfo {
   upstreamCost: number | null;
   /** The request used your own provider key instead of OpenRouter credits. */
   byok: boolean;
-  /** Token counts as counted by the upstream provider. */
-  promptTokens: number | null;
-  completionTokens: number | null;
-  cachedTokens: number | null;
 }
 
 export interface LookupOptions {
   apiKey: string;
   timeoutMs?: number;
-  /** Number of additional attempts when the generation is not yet available. */
-  retries?: number;
-  /** Base delay for the exponential backoff between attempts. */
-  retryDelayMs?: number;
   fetchImpl?: typeof fetch;
 }
-
-const DEFAULT_RETRIES = 4;
-const DEFAULT_RETRY_DELAY_MS = 1000;
-
-/**
- * OpenRouter publishes generation metadata with a delay (the endpoint can return
- * 404 for a few seconds right after the call), hence the retry backoff.
- * Total wait ≈ 1s + 2s + 4s + 8s = 15s for the defaults.
- */
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -88,48 +73,28 @@ function parseGeneration(body: unknown): GenerationInfo | null {
     upstreamCost: numberOrNull(data.upstream_inference_cost)
       ?? numberOrNull(costDetails?.upstream_inference_cost),
     byok: data.is_byok === true,
-    promptTokens: numberOrNull(data.native_tokens_prompt),
-    completionTokens: numberOrNull(data.native_tokens_completion),
-    cachedTokens: numberOrNull(data.native_tokens_cached),
   };
 }
 
-async function fetchGeneration(
+/** Resolves the generation metadata for a response id, or null. One attempt. */
+export async function lookupOpenRouterGeneration(
   responseId: string,
   options: LookupOptions,
 ): Promise<GenerationInfo | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
   if (typeof fetchImpl !== "function") return null;
 
-  const response = await fetchImpl(`${GENERATION_URL}?id=${encodeURIComponent(responseId)}`, {
-    headers: { Authorization: `Bearer ${options.apiKey}` },
-    signal: AbortSignal.timeout(options.timeoutMs ?? 3000),
-  });
+  try {
+    const response = await fetchImpl(`${GENERATION_URL}?id=${encodeURIComponent(responseId)}`, {
+      headers: { Authorization: `Bearer ${options.apiKey}` },
+      signal: AbortSignal.timeout(options.timeoutMs ?? 3000),
+    });
+    if (!response.ok) return null;
 
-  if (!response.ok) return null;
-  return parseGeneration(await response.json());
-}
-
-/** Resolves the generation metadata for a response id, or null. */
-export async function lookupOpenRouterGeneration(
-  responseId: string,
-  options: LookupOptions,
-): Promise<GenerationInfo | null> {
-  const attempts = 1 + Math.max(0, options.retries ?? DEFAULT_RETRIES);
-  const baseDelay = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
-
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const info = await fetchGeneration(responseId, options);
-      if (info) return info;
-    } catch {
-      // Network errors / timeouts / aborts are non-fatal.
-    }
-
-    if (attempt < attempts - 1) {
-      await new Promise((resolve) => setTimeout(resolve, baseDelay * 2 ** attempt));
-    }
+    return parseGeneration(await response.json());
+  } catch {
+    // Network errors / timeouts are non-fatal: without data the last known
+    // values (or the catalogue-derived ones) stay in place.
+    return null;
   }
-
-  return null;
 }

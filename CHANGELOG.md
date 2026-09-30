@@ -12,22 +12,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Serving provider and billed amount now come from the response itself: OpenRouter
   puts the provider into every stream chunk and the charged amount into the final
   usage chunk, and the `provider_stream_event` event (pi 0.99+) delivers both
-  before Pi normalizes them away. No generation-API request, no retry backoff and
-  no `⟳` waiting state on the normal path, and a provider switch is visible per
-  response instead of once per cache window. The generation API is now only a
-  fallback for responses without stream data (session restore, aborted stream,
-  older Pi).
+  before Pi normalizes them away. No generation-API request and no retry backoff
+  on the normal path, and a provider switch is visible per response instead of
+  once per cache window. Requires pi 0.99+.
 - The rates now come from the prompt/completion split of that same usage chunk
   (`cost_details.upstream_inference_prompt_cost` / `_completions_cost`), so they
   are exact and appear together with the provider - no request, no waiting. The
   endpoint price list is only fetched to weight cached prompt tokens (their share
   is priced inside the prompt cost) and as the split basis for responses without
   that split; it is a public endpoint, so the lookup no longer resolves an API key.
+- The generation API is now **restore-only**: it is asked once (single attempt,
+  no retry backoff, no waiting icon) for the last call of a **restored session**,
+  whose stream data was never captured in this Pi process - and only when the
+  persisted cache has nothing to answer with. Live calls, model switches and
+  aborted streams never trigger a request, so the provider is always the one the
+  response reported.
 - Long-context price tiers are honoured when the rates fall back to the endpoint
   prices: those are used at the tier that applies to the call
   (`pricing.overrides`, e.g. `qwen/qwen3.7-flash` on Alibaba from $0.03 to $0.10
   per 1M input tokens above 32k prompt tokens). The endpoint-price cache is
   re-fetched once (cache version 3) because older entries carry no tiers.
+
+### Removed
+
+- The `providerCacheRefreshPrompts` and `notifyGenerationLookup` settings, the
+  `/provider-cost notify` command and the `⟳` waiting icon: they existed for the
+  per-cache-window generation lookups, which are gone with the restore-only
+  fallback. Existing values are ignored (not deleted) when loading.
 
 ### Fixed
 

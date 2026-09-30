@@ -46,7 +46,8 @@ export interface ModelRegistryLike {
  * - `stream`    – from the response itself (OpenRouter chunk via
  *                 `provider_stream_event`), the normal path;
  * - `routing`   – statically from the routing constraint in `models.json`;
- * - `generation` – via the generation API (fallback, e.g. session restore).
+ * - `generation` – via the generation API (only for a restored session, see
+ *                 `src/upstream.ts`).
  */
 export type ProviderSource = "stream" | "routing" | "generation";
 
@@ -78,8 +79,6 @@ export interface RateSnapshot {
   upstreamProvider: string | null;
   /** Origin of `upstreamProvider`, or null when unknown. */
   providerSource: ProviderSource | null;
-  /** OpenRouter provider is being resolved via the generation API (fallback). */
-  providerPending: boolean;
   /**
    * Token buckets of the call, needed to split the real billed amount. For
    * OpenRouter `input` excludes the cached prompt tokens, which arrive in the
@@ -255,7 +254,6 @@ export function snapshotFromMessage(
     responseId: typeof message.responseId === "string" && message.responseId ? message.responseId : null,
     upstreamProvider: null,
     providerSource: null,
-    providerPending: false,
     tokens: {
       input: message.usage.input,
       output: message.usage.output,
@@ -302,7 +300,6 @@ export function snapshotFromModel(
     responseId: null,
     upstreamProvider: null,
     providerSource: null,
-    providerPending: false,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     ratesFromApi: false,
     cataloguePreview: true,

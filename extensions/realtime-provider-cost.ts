@@ -16,7 +16,7 @@
  *        per response)
  *     2. routing constraint `openRouterRouting.only` from models.json (static)
  *     3. persistent provider cache (last known value)
- *     4. generation API (fallback for responses without stream data, with backoff)
+ *     4. generation API (only for the last call of a restored session)
  * - Converted into the configured currency, mirroring pi-powerline-footer.
  * - The extension is self-contained: without pi-powerline-footer the value
  *   appears as its own footer line; with Powerline it can be placed next to the
@@ -89,21 +89,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   let cacheLoaded = false;
 
   /**
-   * Model of the previously handled/restored call. A change means the user
-   * switched models - then provider and costs are looked up fresh instead of
-   * being served from the cache.
-   */
-  let lastModel: string | null = null;
-
-  /**
    * Set when a serving-provider switch was detected. Everything rendered for the
    * current call is drawn in `switchColor` (yellow by default); the next call
    * resets it, so the highlight is a one-shot hint.
    */
   let switchHighlight = false;
-
-  /** requestModel -> in-flight generation lookup guard. */
-  const lookupsInFlight = new Set<string>();
 
   /**
    * False once the extension is torn down (quit, reload, session replacement).
@@ -202,7 +192,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
     target.upstreamProvider = provider;
     target.providerSource = source;
-    target.providerPending = false;
     render(ctx);
   }
 
@@ -312,38 +301,25 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
    *   1. the response itself (OpenRouter chunk, see `streamCalls`)
    *   2. statically certain provider (single `only` pin, fallbacks disabled)
    *   3. cached provider/rates of an earlier response
-   *   4. generation API + provider price list (fallback)
+   *   4. generation API + provider price list (restored session only)
    *
    * Step 1 is the normal path: `provider_stream_event` carries the provider on
-   * every chunk and the billed amount in the final one, so no request and no
-   * waiting is involved and a provider switch is visible per response. Steps 2-4
-   * only run when a response carries nothing (session restore, aborted stream,
-   * Pi without that event).
+   * every chunk and the billed amount with its split in the final one, so no
+   * request and no waiting is involved and a provider switch is visible per
+   * response. Only the *rates* of step 1 may wait for the provider price list
+   * (cached prompt tokens have to be weighted); the switch decision itself is made
+   * before that lookup - see `applyStreamProvider`.
    *
-   * Only the *rates* of step 1 wait for the provider price list (the billed amount
-   * is one total, the in/out split needs the provider's prices). The switch
-   * decision itself is made before that lookup - see `applyStreamProvider`.
-   *
-   * Step 4 only runs on a cache miss, after the cache entry expired (see
-   * `providerCache.get` / `providerCacheRefreshPrompts`) or when the model just
-   * changed (`force`). A valid cache entry covers the whole refresh window even
-   * when the provider is not certain: with `allow_fallbacks` (OpenRouter
-   * default) another provider may serve the request even though `only` lists
-   * just one, but that is exactly what the cached result reflects.
-   * An entry without rates counts as valid too: free models never bill a
-   * per-token rate, so a missing rate must not turn into a request per prompt.
-   * The same holds for a request that returns nothing at all: the attempt itself
-   * re-arms the window (`providerCache.markAttempt`), so a failing lookup is not
-   * repeated on every prompt either.
-   *
-   * Every outgoing generation-API request is announced via `ctx.ui.notify`,
-   * including the reason (cache miss, expired entry, model switch, manual
-   * refresh, ...).
+   * Steps 2-4 run when a response carries nothing: on a restored session, whose
+   * last call was served long before this Pi process started. `onDemand` marks
+   * exactly those resolutions (restore, explicit re-resolve): they may ask the
+   * generation API (step 4) and never raise the switch highlight, because nothing
+   * switched - the values are just being filled in.
    */
   async function resolveProvider(
     ctx: ExtensionContext,
     target: RateSnapshot,
-    options: { force?: boolean; reason?: string } = {},
+    options: { onDemand?: boolean } = {},
   ): Promise<void> {
     // Called as fire-and-forget, so it must never reject: Pi ends a
     // non-interactive run on an unhandled rejection.
@@ -357,11 +333,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   async function resolveProviderInner(
     ctx: ExtensionContext,
     target: RateSnapshot,
-    options: { force?: boolean; reason?: string } = {},
+    options: { onDemand?: boolean } = {},
   ): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
 
-    const force = options.force === true;
+    const onDemand = options.onDemand === true;
 
     const key = target.requestModel;
     await ensureCacheLoaded();
@@ -419,58 +395,36 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         : certain;
 
     if (certainName && target.upstreamProvider !== certainName) {
-      if (providerChanged(key, certainName)) switchHighlight = true;
+      if (!onDemand && providerChanged(key, certainName)) switchHighlight = true;
       applyProvider(ctx, target, certainName, "routing");
     }
 
-    // 3) Valid cache entry for this model (from an earlier response).
-    const cached = providerCache.get(key, settings.providerCacheRefreshPrompts);
+    // 3) Last known provider/rates of this model (from an earlier response). This
+    //    is what a restored call is answered with; with rates the entry is complete.
+    const cached = providerCache.peek(key);
     if (cached) {
       if (!target.upstreamProvider) applyProvider(ctx, target, cached.provider, cached.source);
 
       const cachedRates = cachedRatesFor(key);
-      if (cachedRates) applyRates(ctx, target, cachedRates.input, cachedRates.output);
-
-      // A still-valid entry is enough - for certain routing providers just as
-      // for generation results, and with or without rates (a free model has
-      // none, see above). Only a model switch (`force`) or an expired entry
-      // (cached === null above) triggers a fresh lookup, so no generation
-      // request is sent per prompt.
-      if (!force) return;
+      if (cachedRates) {
+        applyRates(ctx, target, cachedRates.input, cachedRates.output);
+        return;
+      }
     }
 
-    // 4) Generation API (fallback).
+    // A response always answers step 1, so the generation API below is only asked
+    // for a target without response data (restored session, explicit re-resolve) -
+    // once per resolution, single attempt, no retry and no cache window.
+    if (!onDemand) return;
+
+    // 4) Generation API (restored session only, single attempt).
     const responseId = target.responseId;
-    if (!responseId || lookupsInFlight.has(key)) return;
-
-    // A request that yielded no result (404 right after the call, timeout, ...)
-    // must not be retried on every prompt: the attempt re-arms the cache window
-    // just like a stored entry. `force` (model switch, manual refresh) bypasses
-    // the throttle.
-    const lastAttempt = providerCache.attemptPromptCount(key);
-    const attemptedSince =
-      lastAttempt === null ? null : providerCache.promptCount(key) - lastAttempt;
-    if (
-      !force
-      && attemptedSince !== null
-      && attemptedSince < Math.max(0, settings.providerCacheRefreshPrompts)
-    ) {
-      return;
-    }
-
-    const reason = options.reason ?? generationReason(key);
-    lookupsInFlight.add(key);
-    providerCache.markAttempt(key);
-
-    // Show an "update in progress" marker instead of hiding the provider info.
-    target.providerPending = true;
-    render(ctx);
+    if (!responseId) return;
 
     try {
       const apiKey = await registry(ctx)?.getApiKeyForProvider?.("openrouter");
       if (!apiKey) return;
 
-      notifyGenerationRequest(ctx, target, reason);
       const info = await lookupOpenRouterGeneration(responseId, { apiKey });
       if (!info) return;
 
@@ -495,7 +449,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       }
 
       if (provider) {
-        if (providerChanged(key, provider)) switchHighlight = true;
         providerCache.set(key, provider, "generation", rates);
         applyProvider(ctx, target, provider, "generation");
       }
@@ -503,12 +456,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
       if (rates) applyRates(ctx, target, rates.input, rates.output);
     } catch {
       // Best-effort; without a provider the tag stays hidden.
-    } finally {
-      lookupsInFlight.delete(key);
-      if (target.providerPending) {
-        target.providerPending = false;
-        render(ctx);
-      }
     }
   }
 
@@ -517,28 +464,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     const entry = providerCache.peek(key);
     if (!entry || entry.inputRate == null || entry.outputRate == null) return null;
     return { input: entry.inputRate, output: entry.outputRate };
-  }
-
-  /** Why a fresh generation-API request is necessary, for the notify text. */
-  function generationReason(key: string): string {
-    const entry = providerCache.peek(key);
-    if (!entry) return "cache miss";
-
-    const age = providerCache.promptCount(key) - entry.promptCount;
-    if (entry.source === "generation" && age >= settings.providerCacheRefreshPrompts) {
-      return `cache expired (${age} prompts)`;
-    }
-    if (entry.inputRate == null || entry.outputRate == null) return "cache without rates";
-    return "stale cache";
-  }
-
-  /** Announces an outgoing generation-API request including its reason. */
-  function notifyGenerationRequest(ctx: ExtensionContext, target: RateSnapshot, reason: string): void {
-    if (!settings.notifyGenerationLookup || !ctx.hasUI) return;
-    ctx.ui.notify(
-      `Generation API: resolving provider/costs for ${target.requestModel} (${reason}).`,
-      "info",
-    );
   }
 
   // Serving data of the running call. OpenRouter puts the provider into every
@@ -558,14 +483,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     if (message.role === "assistant") streamCalls.reset(message.model);
   });
 
-  // Prompt counter for the prompt-count based cache invalidation. Counted per
-  // model: prompts on other models must not age this model's cache entry.
-  pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
-    await ensureCacheLoaded();
-    const model = ctx.model?.id;
-    if (model) providerCache.bumpPromptCount(model);
-  });
-
   pi.on("session_shutdown", () => {
     active = false;
     streamCalls.clear();
@@ -580,10 +497,10 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     }
     switchHighlight = false;
     snapshot = snapshotFromBranch(ctx.sessionManager.getBranch(), registry(ctx));
-    // Restoring a session is not a model switch -> no forced refresh.
-    lastModel = snapshot?.requestModel ?? null;
     render(ctx);
-    if (snapshot) void resolveProvider(ctx, snapshot);
+    // The last call of a restored session has no stream data -> provider and
+    // prices come from the cache, the routing constraint or the generation API.
+    if (snapshot) void resolveProvider(ctx, snapshot, { onDemand: true });
   });
 
   // Only finalized assistant messages update the value; while streaming the
@@ -596,8 +513,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
     switchHighlight = false;
     snapshot = next;
-    // `lastModel` stays untouched: the first call of the new model is still
-    // detected as a model change and therefore forces a provider/cost refresh.
     render(ctx);
   });
 
@@ -609,18 +524,14 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     switchHighlight = false;
     snapshot = next;
 
-    // Switching models must not reuse the cached provider/costs of the old one.
-    const modelChanged = lastModel !== null && next.requestModel !== lastModel;
-    lastModel = next.requestModel;
-
     render(ctx);
-    void resolveProvider(ctx, next, { force: modelChanged, reason: modelChanged ? "model switch" : undefined });
+    void resolveProvider(ctx, next);
   });
 
   pi.registerCommand(COMMAND_NAME, {
     description: "Show/toggle the effective provider token prices",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "notify", "color", "switchColor", "style", "threshold"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style", "threshold"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
       const value = prefix.trimStart().toLowerCase();
 
@@ -672,13 +583,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           .map((entry) => ({ value: `lookup ${entry}`, label: entry }));
       }
 
-      if (value.startsWith("notify ")) {
-        const mode = value.split(/\s+/)[1] ?? "";
-        return ["on", "off"]
-          .filter((entry) => entry.startsWith(mode))
-          .map((entry) => ({ value: `notify ${entry}`, label: entry }));
-      }
-
       return options
         .filter((option) => option.startsWith(value))
         .map((option) => ({ value: option, label: option }));
@@ -713,22 +617,20 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const ok = await refreshRates();
         render(ctx);
 
-        // Also re-resolve provider and costs, when a lookup is possible at all.
-        const lookupPossible =
-          settings.lookupUpstreamProvider &&
-          snapshot !== null &&
-          snapshot.provider === "openrouter" &&
-          snapshot.responseId !== null;
+        // Also re-resolve provider and costs of the last call.
+        const resolvable = settings.lookupUpstreamProvider
+          && snapshot !== null
+          && snapshot.provider === "openrouter";
 
-        if (lookupPossible && snapshot) {
-          void resolveProvider(ctx, snapshot, { force: true, reason: "manual refresh" });
+        if (resolvable && snapshot) {
+          void resolveProvider(ctx, snapshot, { onDemand: true });
         }
 
         ctx.ui.notify(
           (ok
             ? "Exchange rates reloaded."
             : "Exchange rates could not be loaded (using cached values or '?' if available).")
-            + (lookupPossible ? " Provider/costs are being re-resolved." : ""),
+            + (resolvable ? " Provider/costs are being re-resolved." : ""),
           ok ? "info" : "warning",
         );
         return;
@@ -820,20 +722,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         ctx.ui.notify(`${isSwitch ? "Switch colour" : "Colour"} set to ${name}.`, "info");
         return;
       }
-      case "notify": {
-        const mode = rest[0]?.toLowerCase();
-        if (mode !== "on" && mode !== "off") {
-          ctx.ui.notify(`Expected: /${COMMAND_NAME} notify on|off`, "warning");
-          return;
-        }
-        settings = { ...settings, notifyGenerationLookup: mode === "on" };
-        await saveSettings({ notifyGenerationLookup: settings.notifyGenerationLookup });
-        ctx.ui.notify(
-          `Generation-API notification ${settings.notifyGenerationLookup ? "enabled" : "disabled"}.`,
-          "info",
-        );
-        return;
-      }
       case "lookup": {
         const mode = rest[0]?.toLowerCase();
         if (mode === "refresh") {
@@ -844,7 +732,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
             snapshot.upstreamProvider = null;
             snapshot.providerSource = null;
             render(ctx);
-            void resolveProvider(ctx, snapshot, { reason: "cache cleared" });
+            void resolveProvider(ctx, snapshot, { onDemand: true });
           }
           ctx.ui.notify("Provider cache cleared; resolution running.", "info");
           return;
@@ -856,7 +744,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         settings = { ...settings, lookupUpstreamProvider: mode === "on" };
         await saveSettings({ lookupUpstreamProvider: settings.lookupUpstreamProvider });
         render(ctx);
-        if (settings.lookupUpstreamProvider && snapshot) void resolveProvider(ctx, snapshot);
+        if (settings.lookupUpstreamProvider && snapshot) {
+          void resolveProvider(ctx, snapshot, { onDemand: true });
+        }
         ctx.ui.notify(
           `Provider resolution ${settings.lookupUpstreamProvider ? "enabled" : "disabled"}.`,
           "info",
@@ -877,10 +767,8 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         const tag = snapshot ? upstreamTag(snapshot) : null;
         const source = snapshot?.providerSource ?? "-";
         const cached = snapshot ? providerCache.peek(snapshot.requestModel) : null;
-        const prompts = snapshot ? providerCache.promptCount(snapshot.requestModel) : 0;
         const cacheInfo = cached
-          ? `cache:${cached.source}, age:${prompts - cached.promptCount} prompts`
-            + (cached.inputRate != null ? `, rates:api` : "")
+          ? `cache:${cached.source}${cached.inputRate != null ? ", rates:api" : ""}`
           : "cache:-";
         ctx.ui.notify(
           `Provider prices: ${state} · currency: ${settings.currency} · icons: ${settings.icons}`
@@ -888,11 +776,10 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           + ` (deviation: ${settings.deviationStyle}, thresholds: `
           + `-${settings.deviationThresholds.green}/${settings.deviationThresholds.yellow}/`
           + `${settings.deviationThresholds.orange}%)`
-          + ` · lookup: ${settings.lookupUpstreamProvider ? "on" : "off"} (refresh every ${settings.providerCacheRefreshPrompts} prompts per model)`
-          + ` · notify: ${settings.notifyGenerationLookup ? "on" : "off"}`
+          + ` · lookup: ${settings.lookupUpstreamProvider ? "on" : "off"}`
           + ` · display: ${text ?? "-"} · model: ${active} · tag: ${tag ?? "-"} (${source})`
           + ` · rates: ${snapshot?.cataloguePreview ? "catalogue (preview)" : snapshot?.ratesFromApi ? "api" : "catalogue"} · ${cacheInfo}`
-          + ` · prompts (current model): ${prompts} · cache entries: ${providerCache.size()}`,
+          + ` · cache entries: ${providerCache.size()}`,
           "info",
         );
         return;
@@ -914,6 +801,6 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
       + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...|reverse:...>`
       + `|switchColor <...>|style <${DEVIATION_STYLES.join("|")}>`
-      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>|notify <on|off>`;
+      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>`;
   }
 }

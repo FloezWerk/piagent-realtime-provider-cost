@@ -25,7 +25,6 @@ Fireworks).
 ```
 ↑$2/↓$12 (Fir)    # arrows (Unicode, full size in every font), tag = Fireworks
 in:$2/out:$12     # ASCII mode (icons: ascii)
-↑$2/↓$12 (⟳)      # fallback lookup in progress (generation API)
 ↑$1.5/↓$6 (?)     # model just switched: catalogue prices, provider not known yet
 ```
 
@@ -65,7 +64,7 @@ Pi's catalogue computation (`usage.cost.*`) and shows **no** provider tag.
 | Provider | Status | Billed rate | Serving-provider tag |
 | --- | --- | --- | --- |
 | **OpenRouter** (`openrouter`) | ✅ Full support | Real amount from the response (`usage.cost`, BYOK: `upstream_inference_cost`), catalogue rates only as fallback/preview | ✅ |
-| Any other provider | ⚠️ Fallback only | Pi catalogue (`usage.cost.*`) – no real billed rate, no lookup | ❌ |
+| Any other provider | ⚠️ Fallback only | Pi catalogue (`usage.cost.*`) – no real billed rate | ❌ |
 | Subscription-backed (OAuth, `kimi-coding`) | ⛔ Hidden | – | – |
 
 Adding another provider requires the same metadata in its stream chunks plus
@@ -235,7 +234,7 @@ Common alternatives for the switch highlight:
 
 | Command | Effect |
 | --- | --- |
-| `/provider-cost` or `/provider-cost status` | State, currency, icons, colours, lookup+refresh interval, display, tag/source, cache age in prompts |
+| `/provider-cost` or `/provider-cost status` | State, currency, icons, colours, lookup state, display, tag/source, cache entry |
 | `/provider-cost on` | Enable the display (persisted) |
 | `/provider-cost off` | Disable the display (persisted) |
 | `/provider-cost toggle` | Toggle (persisted) |
@@ -247,7 +246,6 @@ Common alternatives for the switch highlight:
 | `/provider-cost style <plain\|bold\|reverse>` | Attributes of the deviation colour on the in/out icon (persisted; default `plain`) |
 | `/provider-cost threshold <green\|yellow\|orange> <pct>` | Set a deviation threshold in percent (persisted; defaults 10/10/20) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider resolution on/off; `refresh` clears the provider **and** pricing cache and re-resolves |
-| `/provider-cost notify <on\|off>` | Notification for every automatic generation-API **fallback** request (persisted; default `off`) |
 
 ## Configuration
 
@@ -265,9 +263,7 @@ also be set via a command.
     "switchColor": "bold:#ffd700",
     "deviationStyle": "plain",
     "deviationThresholds": { "green": 10, "yellow": 10, "orange": 20 },
-    "lookupUpstreamProvider": true,
-    "providerCacheRefreshPrompts": 10,
-    "notifyGenerationLookup": false
+    "lookupUpstreamProvider": true
   }
 }
 ```
@@ -281,9 +277,7 @@ also be set via a command.
 | `switchColor` | `"bold:#ffd700"` | Colour right after a detected provider change |
 | `deviationStyle` | `"plain"` | SGR attributes of the deviation colour on the icon: `plain`, `bold`, `reverse` |
 | `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Percentage thresholds: below `-green` green, up to `yellow` yellow, up to `orange` orange, above red (all ≥ 0) |
-| `lookupUpstreamProvider` | `true` | Provider/cost resolution active (response stream, routing constraint, cache, generation API as fallback) |
-| `providerCacheRefreshPrompts` | `10` | After this many **prompts** (user turns) **on the same model** a *fallback* `generation` cache entry is refreshed; `0` = always re-resolve |
-| `notifyGenerationLookup` | `false` | Notify before every automatic generation-API **fallback** request (with reason) |
+| `lookupUpstreamProvider` | `true` | Resolve the serving provider and the real prices (response stream, routing constraint, cache, generation API for a restored session). `off` = catalogue prices, no provider tag |
 
 ### Icons
 
@@ -354,8 +348,8 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
   every such call would resolve to `$0/$0`.
 
 - **Resolution.** Order:
-  1. **The response itself** – the `provider_stream_event` extension event
-     delivers every parsed chunk before Pi normalizes it, and Pi drops both
+  1. **The response itself** (pi 0.99+) – the `provider_stream_event` extension
+     event delivers every parsed chunk before Pi normalizes it, and Pi drops both
      fields the display needs: `provider` (the provider *inside* OpenRouter) on
      every chunk and the billed amount in the final usage chunk, including its
      prompt/completion split. Provider, prices and a switch between two calls are
@@ -366,77 +360,44 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
      `allow_fallbacks: true` (OpenRouter default) another provider may serve even
      if `only` names exactly one.
   3. **Persistent rate cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
-     key = request model – the last known provider/rates, used when a response
-     carries nothing (session restore, aborted stream, Pi without the event).
-     `generation` entries (see 4) expire after `providerCacheRefreshPrompts`
-     **prompts on the same model** (not by time), so activity on other models
-     does not age them. The file also stores, per model, the prompt counter of
-     the last generation-API attempt (any outcome).
+     key = request model – the last known provider/rates of that model. Every
+     live response overwrites its entry, so it is the answer for a call whose
+     stream data is gone: the last message of a **restored session**.
   4. **Generation API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
-     – **fallback only**, when a response delivered no provider (e.g. a restored
-     session whose last call is long over, an aborted stream, or an older Pi
-     without `provider_stream_event`). Returns the provider **and** the real
-     amount, at most 1 call per model at a time. Data is only available a few
-     seconds after the call → retry with backoff (1s/2s/4s/8s). Meanwhile an
-     **"update in progress" icon** (`⟳`) is shown instead of the provider tag.
+     – **restore-only**: asked for the last call of a restored session (or an
+     explicit `/provider-cost refresh`), when steps 1-3 have nothing to answer
+     with. Returns the provider **and** the billed amount, one single attempt
+     without retry, because such a generation is minutes or hours old and the
+     endpoint is ready immediately.
 
   **When is the API called?**
-  - Normal calls → never. Provider and billed amount come from the response.
-  - Response without provider data (restore, abort, older Pi) → step 2/3 first;
-    only if those cannot answer, one request per cache window per model:
-    - Provider *certain* (one `only` entry **and** `allow_fallbacks: false`) →
-      once on the first call, afterwards only every N prompts on that model
-      (rate cache).
-    - Provider *not certain* (`allow_fallbacks: true` or no `only`) → also once
-      per cache window: the cached entry covers the whole window, because it
-      reflects the provider that actually served the request.
-  - **Free models** (`:free`, zero endpoint prices) → same as above. No
-    per-token rate can be derived from a zero invoice, so the entry is cached
-    **without** rates and stays valid for the full window instead of forcing a
-    request per prompt.
-  - **Model switch** (different request model than the previous call) → forced
-    refresh of provider **and** costs, even if the cache would still be fresh. A
-    session restore with the same model is not a switch.
-  - **Failed lookup** (endpoint returns nothing: 404 right after the call,
-    timeout, ...) → the attempt re-arms the cache window too, so a request that
-    yielded no result is retried at most once per window, not once per prompt.
-    The last known entry stays in use meanwhile.
-
-  **Notification.** (Optional, default **off**: setting
-  `notifyGenerationLookup` or `/provider-cost notify on`.) Every automatically
-  triggered generation-API **fallback** request is reported as a notify,
-  including the reason in parentheses, e.g.
-  `Generation API: resolving provider/costs for deepseek/… (cache miss).`
-  Reasons: `cache miss`, `cache expired (N prompts)`, `cache without rates`,
-  `stale cache`, `model switch`, `manual refresh` (`/provider-cost refresh`),
-  `cache cleared` (`/provider-cost lookup refresh`).
+  - Live calls (also model switches and aborted streams) → **never**. Provider
+    and billed amount come from the response itself.
+  - Restored session → only if the cache of that model has no entry (or one
+    without rates): **one request per restored call**, not per prompt.
+  - **Failed lookup** (endpoint returns nothing: timeout, 404, ...) → the last
+    known entry stays in use; there is no retry and no follow-up request until
+    the next restore or explicit refresh.
 
 - **Preview on model switch.** When the model is switched (`model_select`), the
   **catalogue prices** (`models-store.json`) of the new model are shown
   immediately. The serving provider is not known at that point yet (the first
-  call of the new model is still running) → the tag shows `?`. As soon as the
-  first response arrives, the real value (including provider tag, or `⟳` while
-  resolving) replaces the preview. Tiered pricing is not applied in the preview –
-  without token counts only the base rates are known.
+  call of the new model is still running) → the tag shows `?`. The first response
+  then replaces the preview with the real values. Tiered pricing is not applied
+  in the preview – without token counts only the base rates are known.
   - **`/provider-cost refresh`** → reloads the exchange rates **and** re-resolves
-    provider + costs of the last call when possible (OpenRouter,
-    `lookupUpstreamProvider` active, `responseId` present, no lookup already
-    running). Clear the cache first with `/provider-cost lookup refresh`.
-
-  The prompt counters are persisted per model in the cache and survive restarts.
-  Example with `providerCacheRefreshPrompts: 10`: resolution on the 1st prompt
-  of a model, then again after the 10th further prompt **on that model**.
+    provider + costs of the last call (`lookupUpstreamProvider` active). Clear the
+    cache first with `/provider-cost lookup refresh`.
 
 - **Provider switch:** detected per response, because `provider` is part of every
-  chunk. Only the fallback path has to guess: with a *certain* routing constraint
-  the provider is stable in the short term, otherwise it is queried once per
-  cache window.
+  chunk. Only a restored call has to guess: with a *certain* routing constraint
+  the provider is stable in the short term, otherwise the cache answers.
 - **Two caches:** `provider-cache.json` (provider + rates per model) and
   `endpoint-pricing.json` (provider price lists, 24 h - only needed to weight
   cached prompt tokens and for responses without a cost split).
   `/provider-cost lookup refresh` clears both.
 - **No batch endpoint:** OpenRouter offers neither multiple IDs nor a generations
-  list; `/api/v1/activity` requires a management key. A fallback lookup therefore
+  list; `/api/v1/activity` requires a management key. A restore lookup therefore
   covers one response at a time.
 - **While streaming** the last known value stays; it is only updated on
   `message_end`, when the final chunk (provider + usage) has been seen.
