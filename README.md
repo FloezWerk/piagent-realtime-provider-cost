@@ -299,119 +299,78 @@ Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
 
 ## How it works
 
-- **Real billing instead of catalogue price.** The source of the numbers is the
-  OpenRouter **response itself**: the stream carries the provider on every chunk,
-  and the final usage chunk the billed amount *and* its split into the prompt and
-  completion part (`usage.cost`, `usage.cost_details.*`). The rates therefore come
-  straight from the invoice:
+The numbers come from the **response itself**, not from a price list: OpenRouter
+puts the serving provider into every stream chunk and the billed amount with its
+prompt/completion split into the final usage chunk. Pi drops both while
+normalizing - `provider_stream_event` (pi 0.99+) hands them over before that, so
+provider and prices are known **per response**, without a request.
 
-  ```
-  out-rate = completions_cost / completion_tokens            (USD per 1M tokens)
-  in-rate  = prompt_cost / (in + wWrite*cacheWrite + wRead*cacheRead)
-  ```
+```mermaid
+flowchart TD
+  A[Response] -->|"stream data"| Z["Display: provider tag + real rates<br/>per response, no request"]
+  A -->|"no stream data (restored session)"| C["Routing constraint<br/>only + allow_fallbacks: false"]
+  C --> D["Provider cache<br/>last known provider/rates"]
+  D -->|"complete entry"| Z
+  D -->|"nothing to answer"| E["Generation API<br/>one attempt, restore only"]
+  E --> Z
+```
 
-  `prompt_cost` covers **every** prompt token (a cache read is already priced into
-  it), so cached tokens are weighted by their price *relation* to the input price
-  (`wRead`/`wWrite`, from the endpoint prices) before the uncached input rate is
-  divided out. Without cached prompt tokens the rates need no endpoint prices at
-  all - they are rendered together with the provider, without a request.
+**Rates from the invoice.** The billed amount arrives split into its prompt and
+completion part (`usage.cost_details.*`), so the rates are exact:
 
-  Responses without that split (generation API, older Pi, session restore) fall
-  back to the **endpoint prices** as the split basis of the billed total:
+```
+out-rate = completions_cost / completion_tokens            (USD per 1M tokens)
+in-rate  = prompt_cost / (in + wWrite*cacheWrite + wRead*cacheRead)
+```
 
-  ```
-  modelled = prompt*in + completion*out
-           + cacheWrite*cacheWriteTokens + cacheRead*cacheReadTokens   (from endpoint prices)
-  factor   = total_cost / modelled          # discounts, peak overrides, price changes
-  in-rate  = prompt * factor
-  out-rate = completion * factor
-  ```
+`prompt_cost` covers **every** prompt token, so cached tokens are weighted by
+their price *relation* to the input price (`wRead`/`wWrite`, from the endpoint
+prices). Without cached prompt tokens nothing has to be looked up:
 
-  The `factor` makes the display match the invoice even when endpoint prices do
-  not (yet) exactly match the billed rate. As long as no response data is
-  available, the approximation from `usage.cost.*` (Pi catalogue) is shown.
-  Endpoint prices are used at the **long-context tier** that applies to the call
-  (`pricing.overrides` with `min_prompt_tokens`): above the threshold the rate
-  jumps (e.g. `qwen/qwen3.7-flash` on Alibaba from $0.03 to $0.10 per 1M input
-  tokens above 32k prompt tokens), and splitting a long call with base prices
-  would distort the in/out ratio.
+```mermaid
+sequenceDiagram
+  participant S as Provider stream
+  participant E as Extension
+  participant O as OpenRouter
+  S->>E: provider, billed amount, split (final chunk)
+  E->>E: switch decision and rates, synchronous
+  opt cached prompt tokens
+    E->>O: endpoint prices (ratios only)
+  end
+```
 
-  All billed buckets count towards the invoice, including the cached prompt
-  tokens: OpenRouter reports the uncached prompt part as `input`, so a call whose
-  prompt is mostly a cache write would otherwise produce absurdly high displayed
-  rates.
+Without such a split (restore, generation API) the billed total is split by the
+provider's endpoint prices instead: `factor = billed / modelled`,
+`rate = price * factor`. Those prices are used at the **long-context tier** that
+applies to the call (`pricing.overrides`), and every billed bucket counts -
+including the cached prompt tokens, which OpenRouter reports outside `input`.
 
-  **BYOK** (OpenRouter serves the request through your own provider key):
-  OpenRouter charges nothing (`total_cost: 0`) and the provider invoices you
-  directly, so the upstream cost is used - `upstream_inference_cost`, or its
-  prompt/completion parts when the response splits them. Without that fallback
-  every such call would resolve to `$0/$0`.
+**Details**
 
-- **Resolution.** Order:
-  1. **The response itself** (pi 0.99+) – the `provider_stream_event` extension
-     event delivers every parsed chunk before Pi normalizes it, and Pi drops both
-     fields the display needs: `provider` (the provider *inside* OpenRouter) on
-     every chunk and the billed amount in the final usage chunk, including its
-     prompt/completion split. Provider, prices and a switch between two calls are
-     therefore known **per response**, without a request and without waiting.
-  2. **Routing constraint** from `models.json`
-     (`providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`)
-     – only counts as *certain* when `allow_fallbacks: false` is set. With
-     `allow_fallbacks: true` (OpenRouter default) another provider may serve even
-     if `only` names exactly one.
-  3. **Persistent rate cache** (`~/.pi/agent/realtime-provider-cost/provider-cache.json`),
-     key = request model – the last known provider/rates of that model. Every
-     live response overwrites its entry, so it is the answer for a call whose
-     stream data is gone: the last message of a **restored session**.
-  4. **Generation API** `GET https://openrouter.ai/api/v1/generation?id=<responseId>`
-     – **restore-only**: asked for the last call of a restored session (or an
-     explicit `/provider-cost refresh`), when steps 1-3 have nothing to answer
-     with. Returns the provider **and** the billed amount, one single attempt
-     without retry, because such a generation is minutes or hours old and the
-     endpoint is ready immediately.
-
-  **When is the API called?**
-  - Live calls (also model switches and aborted streams) → **never**. Provider
-    and billed amount come from the response itself.
-  - Restored session → only if the cache of that model has no entry (or one
-    without rates): **one request per restored call**, not per prompt.
-  - **Failed lookup** (endpoint returns nothing: timeout, 404, ...) → the last
-    known entry stays in use; there is no retry and no follow-up request until
-    the next restore or explicit refresh.
-
-- **Preview on model switch.** When the model is switched (`model_select`), the
-  **catalogue prices** (`models-store.json`) of the new model are shown
-  immediately. The serving provider is not known at that point yet (the first
-  call of the new model is still running) → the tag shows `?`. The first response
-  then replaces the preview with the real values. Tiered pricing is not applied
-  in the preview – without token counts only the base rates are known.
-  - **`/provider-cost refresh`** → reloads the exchange rates **and** re-resolves
-    provider + costs of the last call (`lookupUpstreamProvider` active). Clear the
-    cache first with `/provider-cost lookup refresh`.
-
-- **Provider switch:** detected per response, because `provider` is part of every
-  chunk. Only a restored call has to guess: with a *certain* routing constraint
-  the provider is stable in the short term, otherwise the cache answers.
-- **Two caches:** `provider-cache.json` (provider + rates per model) and
-  `endpoint-pricing.json` (provider price lists, 24 h - only needed to weight
-  cached prompt tokens and for responses without a cost split).
-  `/provider-cost lookup refresh` clears both.
-- **No batch endpoint:** OpenRouter offers neither multiple IDs nor a generations
-  list; `/api/v1/activity` requires a management key. A restore lookup therefore
-  covers one response at a time.
-- **While streaming** the last known value stays; it is only updated on
-  `message_end`, when the final chunk (provider + usage) has been seen.
-- **A resolution never ends a session:** it runs in the background and stops
-  rendering once the session is gone (Pi rejects a stale extension context).
-- **Failover:** if one side is not computable (e.g. `usage.input == 0`) or the
-  conversion rate is missing, `?` is shown per side.
-- **Subscription providers** (OAuth or `kimi-coding`) → the item is hidden.
-- **Free models** are shown as `$0/$0`.
-- **Currency conversion** mirrors `pi-powerline-footer` (same source, 24h cache,
-  own file `…/realtime-provider-cost/currency-rates.json`); independent of
-  Powerline.
-- **No interference with Pi:** the extension replaces neither the footer nor the
-  cost calculation; the session cost sum next to it remains Pi's catalogue value.
+- **BYOK** (request served through your own provider key): OpenRouter charges
+  nothing and the provider invoices you directly, so the upstream amount is used -
+  never `$0/$0`.
+- **Routing constraint** (`models.json` →
+  `providers.openrouter.modelOverrides.<model>.compat.openRouterRouting.only`):
+  counts as *certain* only with `allow_fallbacks: false` - otherwise another
+  provider may serve even a single `only` entry.
+- **Generation API** (`/api/v1/generation?id=<responseId>`): **restore-only** -
+  one attempt, only when the cache has nothing to answer with (it covers one
+  response at a time). Live calls, model switches and aborted streams never
+  trigger it; a failed lookup keeps the last known values.
+- **Caches**: `provider-cache.json` (provider + rates per model; every response
+  overwrites its entry, so nothing expires) and `endpoint-pricing.json` (provider
+  price lists, 24 h). `/provider-cost lookup refresh` clears both.
+- **Model switch**: the catalogue prices of the new model appear immediately with
+  a `?` tag until its first response replaces them.
+- **Update timing**: the item changes on `message_end` only, when the final chunk
+  has been seen - while streaming the last known value stays.
+- **Not computable** (e.g. `usage.input == 0`, missing exchange rate) → `?` per
+  side; **free models** → `$0/$0`; **subscription providers** → item hidden.
+- **Currency** mirrors `pi-powerline-footer` (same source, 24 h cache, own file);
+  the session cost sum next to it stays Pi's own catalogue value.
+- **Background work**: a resolution runs in the background and stops rendering
+  once the session is gone, so it can never affect a run (`pi -p` included).
 
 ## Background: where the data comes from
 
@@ -427,9 +386,9 @@ listed as "exposed" but is not sent).
 Since pi 0.99 the raw chunk is reachable before normalization through the
 `provider_stream_event` extension event, which is what this extension uses. The
 [generation API](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation)
-is kept as a fallback for responses that carry no stream data (restored sessions,
-aborted streams, older Pi); it needs a separate request, is published with a
-delay of up to a minute and returns the same provider and amount.
+is kept for the one case without stream data - the last call of a **restored
+session**; it needs a separate request, is published with a delay of up to a
+minute and returns the same provider and amount.
 
 ## Dependencies
 
