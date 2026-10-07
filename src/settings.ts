@@ -16,6 +16,10 @@ import {
   DEFAULT_DEVIATION_THRESHOLDS,
   type DeviationThresholds,
 } from "./pricing.ts";
+import {
+  normalizeSessionCostBasis,
+  type SessionCostBasis,
+} from "./session-cost.ts";
 
 /**
  * SGR attributes applied to the deviation colours (which are carried by the
@@ -67,6 +71,14 @@ export interface ExtensionSettings {
   deviationStyle: DeviationStyle;
   /** Percentage thresholds for the deviation colours (green/yellow/orange). */
   deviationThresholds: DeviationThresholds;
+  /**
+   * Replace the catalogue cost of every OpenRouter call with the real billed
+   * amount, so the session cost sum of Pi (footer, `/session`, `/cost`, export,
+   * pi-powerline-footer) matches what was actually charged.
+   */
+  patchSessionCost: boolean;
+  /** Amount the session cost uses for a call on your own provider key (BYOK). */
+  sessionCostBasis: SessionCostBasis;
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -80,6 +92,9 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   // Plain colour on the arrows; the numbers stay in the base colour.
   deviationStyle: "plain",
   deviationThresholds: DEFAULT_DEVIATION_THRESHOLDS,
+  patchSessionCost: true,
+  // BYOK: the provider bills your key, so the upstream amount is the real spend.
+  sessionCostBasis: "upstream",
 };
 
 /** Validates the threshold object, filling in defaults for missing/invalid entries. */
@@ -147,6 +162,12 @@ export async function loadSettings(): Promise<ExtensionSettings> {
     deviationStyle:
       normalizeDeviationStyle(section.deviationStyle) ?? DEFAULT_SETTINGS.deviationStyle,
     deviationThresholds: normalizeDeviationThresholds(section.deviationThresholds),
+    patchSessionCost:
+      typeof section.patchSessionCost === "boolean"
+        ? section.patchSessionCost
+        : DEFAULT_SETTINGS.patchSessionCost,
+    sessionCostBasis:
+      normalizeSessionCostBasis(section.sessionCostBasis) ?? DEFAULT_SETTINGS.sessionCostBasis,
   };
 }
 

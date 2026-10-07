@@ -33,6 +33,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
   MessageEndEvent,
+  MessageEndEventResult,
   ModelSelectEvent,
 } from "@earendil-works/pi-coding-agent";
 
@@ -61,6 +62,13 @@ import {
 } from "../src/pricing.ts";
 import { providerCache } from "../src/provider-cache.ts";
 import { deriveRealRates, effectiveBilledCost, ratesFromCostSplit } from "../src/rates.ts";
+import {
+  SESSION_COST_BASES,
+  normalizeSessionCostBasis,
+  patchedCost,
+  sessionCostAmount,
+  type UsageCostLike,
+} from "../src/session-cost.ts";
 import {
   DEFAULT_SETTINGS,
   DEVIATION_STYLES,
@@ -329,7 +337,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   async function resolveProvider(
     ctx: ExtensionContext,
     target: RateSnapshot,
-    options: { onDemand?: boolean } = {},
+    options: { onDemand?: boolean; call?: StreamCallInfo | null } = {},
   ): Promise<void> {
     // Called as fire-and-forget, so it must never reject: Pi ends a
     // non-interactive run on an unhandled rejection.
@@ -343,7 +351,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
   async function resolveProviderInner(
     ctx: ExtensionContext,
     target: RateSnapshot,
-    options: { onDemand?: boolean } = {},
+    options: { onDemand?: boolean; call?: StreamCallInfo | null } = {},
   ): Promise<void> {
     if (!settings.lookupUpstreamProvider || target.provider !== "openrouter") return;
 
@@ -354,7 +362,9 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
 
     // 1) The call itself: provider and billed amount were captured from the
     //    stream chunks. Consumed here, so it cannot be reused for a later call.
-    const call = streamCalls.take(key);
+    //    `message_end` passes the entry it already took for the session-cost patch
+    //    (`call: null` = there was none); an explicit re-resolve takes it itself.
+    const call = options.call === undefined ? streamCalls.take(key) : options.call;
     if (call?.provider) {
       // Switch detection, cache and render run *before* the price lookup below:
       // it can take a network round trip (endpoint price list), and a response
@@ -542,13 +552,57 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     snapshot = next;
 
     render(ctx);
-    void resolveProvider(ctx, next);
+
+    // The call's own stream data is taken here, once: the resolution below and the
+    // session-cost patch both work from that same entry, and a later response of
+    // the same model cannot reuse it.
+    const call = next.provider === "openrouter" ? streamCalls.take(next.requestModel) : null;
+    void resolveProvider(ctx, next, { call });
+
+    return patchSessionCost(event.message, next, call);
   });
+
+  /**
+   * Replaces the catalogue cost of the finalized message with the amount OpenRouter
+   * actually billed, so Pi's session sum (footer, `/session`, `/cost`, export,
+   * pi-powerline-footer) shows the real spend. Pi applies the returned message in
+   * place before persisting it and before its own listeners run, so every consumer
+   * sees the corrected value; calls of earlier turns and of a restored session keep
+   * the catalogue value (they are already persisted).
+   *
+   * Returns undefined when nothing is patched (setting off, no stream data, no
+   * usable amount, non-OpenRouter model).
+   */
+  function patchSessionCost(
+    message: MessageEndEvent["message"],
+    target: RateSnapshot,
+    call: StreamCallInfo | null,
+  ): MessageEndEventResult | undefined {
+    if (!settings.patchSessionCost || !settings.lookupUpstreamProvider) return undefined;
+    if (target.provider !== "openrouter" || target.subscription) return undefined;
+    if (!call) return undefined;
+
+    const billed = sessionCostAmount(call, settings.sessionCostBasis);
+    if (billed === null) return undefined;
+
+    const usage = (message as { usage?: { cost?: UsageCostLike } }).usage;
+    const cost = usage?.cost;
+    if (!cost || typeof cost.input !== "number" || typeof cost.total !== "number") {
+      return undefined;
+    }
+
+    const patched = patchedCost(cost, billed);
+    if (!patched) return undefined;
+
+    return {
+      message: { ...message, usage: { ...usage, cost: patched } } as MessageEndEvent["message"],
+    };
+  }
 
   pi.registerCommand(COMMAND_NAME, {
     description: "Show/toggle the effective provider token prices",
     getArgumentCompletions: (prefix: string) => {
-      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style", "threshold"];
+      const options = ["on", "off", "toggle", "refresh", "status", "currency", "icons", "lookup", "color", "switchColor", "style", "threshold", "session"];
       // trimStart only: a trailing space must survive to detect sub-arguments.
       const value = prefix.trimStart().toLowerCase();
 
@@ -598,6 +652,19 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         return ["on", "off", "refresh"]
           .filter((entry) => entry.startsWith(mode))
           .map((entry) => ({ value: `lookup ${entry}`, label: entry }));
+      }
+
+      if (value.startsWith("session ")) {
+        const parts = value.split(/\s+/);
+        if (parts.length <= 2) {
+          return ["on", "off", "toggle", "basis"]
+            .filter((entry) => entry.startsWith(parts[1] ?? ""))
+            .map((entry) => ({ value: `session ${entry}`, label: entry }));
+        }
+        if (parts[1]?.toLowerCase() !== "basis") return [];
+        return SESSION_COST_BASES
+          .filter((entry) => entry.startsWith(parts[2] ?? ""))
+          .map((entry) => ({ value: `session basis ${entry}`, label: entry }));
       }
 
       return options
@@ -770,6 +837,50 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
         );
         return;
       }
+      case "session": {
+        const mode = rest[0]?.toLowerCase();
+
+        if (mode === "basis") {
+          const basis = normalizeSessionCostBasis(rest[1]);
+          if (!basis) {
+            ctx.ui.notify(
+              `Expected: /${COMMAND_NAME} session basis <${SESSION_COST_BASES.join("|")}>`
+                + " (upstream = what the call actually cost, openrouter = what OpenRouter charged).",
+              "warning",
+            );
+            return;
+          }
+          settings = { ...settings, sessionCostBasis: basis };
+          await saveSettings({ sessionCostBasis: basis });
+          ctx.ui.notify(
+            basis === "upstream"
+              ? "Session cost basis: upstream (BYOK calls count what your provider bills)."
+              : "Session cost basis: openrouter (BYOK calls count as $0).",
+            "info",
+          );
+          return;
+        }
+
+        if (mode !== "on" && mode !== "off" && mode !== "toggle") {
+          ctx.ui.notify(
+            `Expected: /${COMMAND_NAME} session on|off|toggle|basis <${SESSION_COST_BASES.join("|")}>`,
+            "warning",
+          );
+          return;
+        }
+
+        const patchSessionCost = mode === "toggle" ? !settings.patchSessionCost : mode === "on";
+        settings = { ...settings, patchSessionCost };
+        await saveSettings({ patchSessionCost });
+        ctx.ui.notify(
+          `Session-cost correction ${patchSessionCost ? "enabled" : "disabled"}`
+            + (patchSessionCost
+              ? ". Applies to the calls from now on; already persisted calls keep Pi's catalogue value."
+              : "."),
+          "info",
+        );
+        return;
+      }
       case "status":
       default: {
         if (action !== "status") {
@@ -794,6 +905,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
           + `-${settings.deviationThresholds.green}/${settings.deviationThresholds.yellow}/`
           + `${settings.deviationThresholds.orange}%)`
           + ` · lookup: ${settings.lookupUpstreamProvider ? "on" : "off"}`
+          + ` · session cost: ${settings.patchSessionCost ? settings.sessionCostBasis : "off"}`
           + ` · display: ${text ?? "-"} · model: ${active} · tag: ${tag ?? "-"} (${source})`
           + ` · rates: ${snapshot?.cataloguePreview ? "catalogue (preview)" : snapshot?.ratesFromApi ? "api" : "catalogue"} · ${cacheInfo}`
           + ` · cache entries: ${providerCache.size()}`,
@@ -818,6 +930,7 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     return `/${COMMAND_NAME} on|off|toggle|refresh|status|currency <${SUPPORTED_CURRENCIES.join("|")}>`
       + `|icons <${ICON_MODES.join("|")}>|color <${COLOR_NAMES.join("|")}|#hex|0-255|bold:...|reverse:...>`
       + `|switchColor <...>|style <${DEVIATION_STYLES.join("|")}>`
-      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>`;
+      + `|threshold <green|yellow|orange> <pct>|lookup <on|off|refresh>`
+      + `|session <on|off|toggle|basis <${SESSION_COST_BASES.join("|")}>>`;
   }
 }

@@ -10,6 +10,8 @@
 
 Shows the **effective token prices (input/output, per 1M tokens)** of the
 **last API call** in the Pi status bar – right next to the session cost sum.
+With the default `patchSessionCost` the sum itself is corrected to the real
+billed amount, see [Session cost](#session-cost).
 
 > **Only OpenRouter is supported today.** Real billed rates and the
 > serving-provider tag come from the OpenRouter response itself (chunk metadata);
@@ -49,6 +51,7 @@ All values are **per 1M tokens** in the configured currency.
 - [Configuration](#configuration)
   - [Icons](#icons)
   - [Rounding](#rounding)
+  - [Session cost](#session-cost)
 - [How it works](#how-it-works)
 - [Background: where the data comes from](#background-where-the-data-comes-from)
 - [Dependencies](#dependencies)
@@ -205,6 +208,8 @@ pi-powerline-footer that needs `selfColorize: true` (see [Setup](#setup)).
 | `/provider-cost style <plain\|bold\|reverse>` | Attributes of the deviation colour on the in/out icon (persisted; default `plain`) |
 | `/provider-cost threshold <green\|yellow\|orange> <pct>` | Set a deviation threshold in percent (persisted; defaults 10/10/20) |
 | `/provider-cost lookup <on\|off\|refresh>` | Provider resolution on/off; `refresh` clears the provider **and** pricing cache and re-resolves |
+| `/provider-cost session <on\|off\|toggle>` | Correct the session cost sum with the real billed amounts (persisted, default on) |
+| `/provider-cost session basis <upstream\|openrouter>` | Which amount BYOK calls count with (persisted, default `upstream`) |
 
 ## Configuration
 
@@ -222,7 +227,9 @@ also be set via a command.
     "switchColor": "bold:#ffd700",
     "deviationStyle": "plain",
     "deviationThresholds": { "green": 10, "yellow": 10, "orange": 20 },
-    "lookupUpstreamProvider": true
+    "lookupUpstreamProvider": true,
+    "patchSessionCost": true,
+    "sessionCostBasis": "upstream"
   }
 }
 ```
@@ -236,7 +243,9 @@ also be set via a command.
 | `switchColor` | `"bold:#ffd700"` | Colour right after a detected provider change |
 | `deviationStyle` | `"plain"` | SGR attributes of the deviation colour on the icon: `plain`, `bold`, `reverse` |
 | `deviationThresholds` | `{green:10, yellow:10, orange:20}` | Percentage thresholds: below `-green` green, up to `yellow` yellow, up to `orange` orange, above red (all ≥ 0) |
-| `lookupUpstreamProvider` | `true` | Resolve the serving provider and the real prices (response stream, routing constraint, cache, generation API for a restored session). `off` = catalogue prices, no provider tag |
+| `lookupUpstreamProvider` | `true` | Resolve the serving provider and the real prices (response stream, routing constraint, cache, generation API for a restored session). `off` = catalogue prices, no provider tag, no session-cost correction |
+| `patchSessionCost` | `true` | Replace the catalogue cost of each OpenRouter call with the real billed amount, so Pi's session cost sum matches the actual spend (see [Session cost](#session-cost)) |
+| `sessionCostBasis` | `"upstream"` | Amount a BYOK call counts with: `upstream` (what your provider bills) or `openrouter` (what OpenRouter charged, `0` for BYOK) |
 
 ### Icons
 
@@ -266,13 +275,45 @@ are rendered noticeably smaller by most fonts.
 Rounded to **at most 4 decimal places**, trailing zeros removed (`$2`, `$12.5`,
 `$0.2896`).
 
+### Session cost
+
+Pi's session cost sum (footer, `/session`, `/cost`, cache notices, HTML export)
+and pi-powerline-footer's `cost` segment add up `usage.cost.total` of every
+session entry - computed from the catalogue prices, so they ignore the provider
+OpenRouter actually routed to. With `patchSessionCost` (default on) this
+extension replaces that amount with the **real billed one**, so those sums show
+the actual spend instead of the catalogue estimate. The token buckets of the
+entry are scaled along, which keeps the derived cache statistics coherent; the
+in/out *split* of the extension's own item still comes from the provider-side
+invoice.
+
+- Applies to **OpenRouter** calls only, and only while `lookupUpstreamProvider`
+  is on. Every other model keeps Pi's catalogue value.
+- `sessionCostBasis` decides what a **BYOK** call counts with: `upstream`
+  (default) is what your provider bills for your own key, `openrouter` counts the
+  `$0` OpenRouter charged.
+- On a credits call the sum is what **OpenRouter charged**, which can be below the
+  provider-side invoice the item's in/out rates are derived from - each figure is
+  correct in its own right (the sum is your spend, the rates are the provider's
+  invoice).
+- Always **USD**, like Pi's own sums - the display currency of the item is a
+  separate conversion.
+- Takes effect for the calls that happen while it is on: Pi computes and stores
+  the cost when a message is finalized, so already persisted turns and the
+  restored last call of a resumed session keep the catalogue value.
+
+Switch it with `patchSessionCost` / `/provider-cost session on|off|toggle` and the
+basis with `/provider-cost session basis <upstream|openrouter>`.
+
 ## How it works
 
 The numbers come from the **response itself**, not from a price list: OpenRouter
 puts the serving provider into every stream chunk and the billed amount with its
 prompt/completion split into the final usage chunk. Pi drops both while
 normalizing - `provider_stream_event` (pi 0.99+) hands them over before that, so
-provider and prices are known **per response**, without a request.
+provider and prices are known **per response**, without a request. The same
+amount corrects Pi's session cost sum (`message_end` replaces the finalized
+message before it is persisted), see [Session cost](#session-cost).
 
 ```mermaid
 flowchart TD
@@ -339,7 +380,13 @@ including the cached prompt tokens, which OpenRouter reports outside `input`.
 - **Not computable** (e.g. `usage.input == 0`, missing exchange rate) → `?` per
   side; **free models** → `$0/$0`; **subscription providers** → item hidden.
 - **Currency** mirrors `pi-powerline-footer` (same source, 24 h cache, own file);
-  the session cost sum next to it stays Pi's own catalogue value.
+  the session cost sum next to it is corrected to the real billed amount by
+  `patchSessionCost` (see [Session cost](#session-cost)), otherwise it stays Pi's
+  own catalogue value.
+- **Session cost patch**: the finalized message is replaced on `message_end`,
+  which Pi applies in place *before* persisting the entry and before its own
+  listeners run - so footer, `/session`, `/cost`, the session file and
+  pi-powerline-footer all see the real amount.
 - **Background work**: a resolution runs in the background and stops rendering
   once the session is gone, so it can never affect a run (`pi -p` included).
 

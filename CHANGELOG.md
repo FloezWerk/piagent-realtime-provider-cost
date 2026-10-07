@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The session cost sum now uses the real billed amounts instead of Pi's catalogue
+  prices: on `message_end` the finalized message is replaced with the amount
+  OpenRouter charged (before it is persisted), so the core footer, `/session`,
+  `/cost`, the cache notices, the HTML export and pi-powerline-footer's `cost`
+  segment all show the actual spend. Toggle with `patchSessionCost` (default on)
+  or `/provider-cost session on|off|toggle`; `sessionCostBasis`
+  (`/provider-cost session basis upstream|openrouter`, default `upstream`)
+  decides what a BYOK call counts with - what your own key is billed or
+  OpenRouter's `$0`. Applies to OpenRouter calls from now on; already persisted
+  turns and the restored last call of a resumed session keep the catalogue value.
+
 ## [0.13.0] - 2026-09-30
 
 ### Added
