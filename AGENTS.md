@@ -18,7 +18,11 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 
 - `extensions/realtime-provider-cost.ts` - the Pi extension (entry point)
 - `src/` - pure modules: color, currency, endpoint-pricing, format, icons,
-  model-routing, pricing, provider-cache, rates, settings, upstream
+  model-routing, pricing, provider-cache, rates, settings, session-cost,
+  stream-usage, upstream
+- Unit tests sit next to their source (`src/*.test.ts`, no Pi, no network);
+  integration tests live in `tests/` (`rpc/` = real `pi --mode rpc`, `pi/` = the
+  modules that need the Pi packages)
 - `CHANGELOG.md` - user-facing changes per version (Keep a Changelog format)
 - `.spec-flow/` - tooling state, not part of the extension
 - CI/CD and the release tooling live in
@@ -44,10 +48,13 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
   no test dependency, no install), bundle smoke test, `npm pack --dry-run`. It
   runs in CI through the shared reusable workflow (`ci.yml` only calls it); peers
   stay external, nothing to install
-- `npm run test:rpc` - free integration test for the `/provider-cost session …`
-  commands: drives a real `pi --mode rpc` against a throwaway
+- `npm run test:rpc` - free integration test for the whole `/provider-cost`
+  command surface: drives a real `pi --mode rpc` against a throwaway
   `PI_CODING_AGENT_DIR` (no model call, never touches the real settings); skips
   itself when `pi` is not on PATH. Not part of `check`
+- `npm run test:pi` - tests for the modules that import the Pi packages
+  (settings, provider-cache, currency, endpoint-pricing, format): temp agent dir,
+  stubbed requests, skipped when the peers are not resolvable. Not part of `check`
 - `npm run readme` - regenerate the README release-notes block from `CHANGELOG.md`
 - `npm run typecheck` - `tsc --noEmit` (needs devDependencies installed)
 - Before committing: quick "no German" review of all touched strings/docs.

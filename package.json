@@ -16,6 +16,7 @@
   "files": [
     "extensions",
     "src",
+    "!src/*.test.ts",
     "README.md",
     "LICENSE"
   ],
@@ -37,8 +38,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "test": "node --test --experimental-strip-types src/*.test.ts",
     "test:rpc": "node --test --experimental-strip-types tests/rpc/*.test.ts",
+    "test:pi": "node --test --experimental-strip-types tests/pi/*.test.ts",
     "readme": "npx -y @floez-werk/pi-extension-release-tool@^0.1 sync-readme",
     "release-notes": "npx -y @floez-werk/pi-extension-release-tool@^0.1 release-notes",
     "check": "npm run check:readme && npm run test && npm run check:bundle && npm run check:pack",

@@ -7,15 +7,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { effectiveBilledCost } from "../src/rates.ts";
+import { effectiveBilledCost } from "./rates.ts";
 import {
   normalizeSessionCostBasis,
   patchedCost,
   sessionCostAmount,
   sessionCostAmountFor,
   type SessionCostOptions,
-} from "../src/session-cost.ts";
-import type { StreamCallInfo } from "../src/stream-usage.ts";
+} from "./session-cost.ts";
+import type { StreamCallInfo } from "./stream-usage.ts";
 
 function call(overrides: Partial<StreamCallInfo> = {}): StreamCallInfo {
   return {
