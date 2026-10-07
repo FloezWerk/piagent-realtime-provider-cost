@@ -23,6 +23,10 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 - Unit tests sit next to their source (`src/*.test.ts`, no Pi, no network);
   integration tests live in `tests/` (`rpc/` = real `pi --mode rpc`, `pi/` = the
   modules that need the Pi packages)
+- The five modules that cannot be imported without the Pi packages
+  (currency, endpoint-pricing, provider-cache, settings, format) keep a
+  placeholder `src/*.test.ts` that points to their `tests/pi/` test and explains
+  the skip - do not delete them, they mark the gap on purpose
 - `CHANGELOG.md` - user-facing changes per version (Keep a Changelog format)
 - `.spec-flow/` - tooling state, not part of the extension
 - CI/CD and the release tooling live in
