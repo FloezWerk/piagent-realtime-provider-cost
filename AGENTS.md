@@ -40,9 +40,14 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 ## Checks
 
 - `npm run check` - README release-notes block is up to date (via the release
-  tooling), bundle smoke test, `npm pack --dry-run`. It runs in CI through the
-  shared reusable workflow (`ci.yml` only calls it); peers stay external,
-  nothing to install
+  tooling), unit tests (`npm run test`, Node's built-in runner on `node:test` -
+  no test dependency, no install), bundle smoke test, `npm pack --dry-run`. It
+  runs in CI through the shared reusable workflow (`ci.yml` only calls it); peers
+  stay external, nothing to install
+- `npm run test:rpc` - free integration test for the `/provider-cost session …`
+  commands: drives a real `pi --mode rpc` against a throwaway
+  `PI_CODING_AGENT_DIR` (no model call, never touches the real settings); skips
+  itself when `pi` is not on PATH. Not part of `check`
 - `npm run readme` - regenerate the README release-notes block from `CHANGELOG.md`
 - `npm run typecheck` - `tsc --noEmit` (needs devDependencies installed)
 - Before committing: quick "no German" review of all touched strings/docs.

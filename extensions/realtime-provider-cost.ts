@@ -66,7 +66,7 @@ import {
   SESSION_COST_BASES,
   normalizeSessionCostBasis,
   patchedCost,
-  sessionCostAmount,
+  sessionCostAmountFor,
   type UsageCostLike,
 } from "../src/session-cost.ts";
 import {
@@ -578,11 +578,11 @@ export default async function realtimeProviderCost(pi: ExtensionAPI): Promise<vo
     target: RateSnapshot,
     call: StreamCallInfo | null,
   ): MessageEndEventResult | undefined {
-    if (!settings.patchSessionCost || !settings.lookupUpstreamProvider) return undefined;
-    if (target.provider !== "openrouter" || target.subscription) return undefined;
-    if (!call) return undefined;
-
-    const billed = sessionCostAmount(call, settings.sessionCostBasis);
+    const billed = sessionCostAmountFor(target, call, {
+      enabled: settings.patchSessionCost,
+      lookup: settings.lookupUpstreamProvider,
+      basis: settings.sessionCostBasis,
+    });
     if (billed === null) return undefined;
 
     const usage = (message as { usage?: { cost?: UsageCostLike } }).usage;

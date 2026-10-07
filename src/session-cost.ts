@@ -65,6 +65,47 @@ export function sessionCostAmount(
   return billed !== null && Number.isFinite(billed) && billed >= 0 ? billed : null;
 }
 
+/** Minimal structural view of the target call a correction is applied to. */
+export interface SessionCostTarget {
+  /** Pi provider id of the call (only `openrouter` is corrected). */
+  provider: string;
+  /** Subscription-backed model: the item is hidden, the sum stays Pi's value. */
+  subscription: boolean;
+}
+
+/** The two settings that gate the correction, plus the BYOK basis. */
+export interface SessionCostOptions {
+  /** `patchSessionCost`. */
+  enabled: boolean;
+  /** `lookupUpstreamProvider`: without the real prices there is no real amount. */
+  lookup: boolean;
+  basis: SessionCostBasis;
+}
+
+/**
+ * Amount a finalized call should put into the session cost, or null when nothing
+ * is corrected:
+ *
+ * - `patchSessionCost` or `lookupUpstreamProvider` is off,
+ * - the model is not served by OpenRouter (or is subscription-backed),
+ * - the call carries no stream data (restored session, aborted stream),
+ * - the call reported no usable amount.
+ *
+ * Pure decision: the caller applies the amount to the message's `usage.cost`
+ * (see `patchedCost`).
+ */
+export function sessionCostAmountFor(
+  target: SessionCostTarget,
+  call: StreamCallInfo | null | undefined,
+  options: SessionCostOptions,
+): number | null {
+  if (!options.enabled || !options.lookup) return null;
+  if (target.provider !== "openrouter" || target.subscription) return null;
+  if (!call) return null;
+
+  return sessionCostAmount(call, options.basis);
+}
+
 /**
  * The catalogue cost with the real billed amount, or null when it cannot be
  * applied.
