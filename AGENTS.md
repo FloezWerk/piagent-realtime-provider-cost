@@ -38,6 +38,7 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 
 - Every user-facing change gets a bullet under `## [Unreleased]` in `CHANGELOG.md`,
   in the same commit that introduces it (categories: `Added`, `Changed`, `Fixed`, ...).
+- Entries are compact and not too technical: at most two sentences.
 - Internal refactors, CI/tooling tweaks, docs-only fixes: no entry.
 - `release.yml` rejects a tag without a matching `X.Y.Z` heading (the version
   links its GitHub release).
