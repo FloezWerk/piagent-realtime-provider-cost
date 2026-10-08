@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenRouter's `$0`. Applies to OpenRouter calls from now on; already persisted
   turns and the restored last call of a resumed session keep the catalogue value.
 
-## [0.13.0] - 2026-09-30
+## [0.13.0](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.13.0) - 2026-09-30
 
 ### Added
 
@@ -84,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-interactive run (`pi -p`) with a stale-context error: rendering stops once
   the extension is torn down, and a failed resolution can no longer reject.
 
-## [0.12.1] - 2026-09-20
+## [0.12.1](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.12.1) - 2026-09-20
 
 ### Added
 
@@ -93,7 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current status per provider (OpenRouter: full support; other providers:
   catalogue fallback without provider tag; subscriptions: hidden).
 
-## [0.12.0] - 2026-09-19
+## [0.12.0](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.12.0) - 2026-09-19
 
 ### Changed
 
@@ -104,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `provider-cache.json` from an older version is migrated (cache version 2); the
   prompt counters start fresh for every model.
 
-## [0.11.2] - 2026-09-19
+## [0.11.2](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.2) - 2026-09-19
 
 ### Changed
 
@@ -115,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub release notes for a version come from its CHANGELOG section (same text
   as the npm package page) instead of a generated commit list.
 
-## [0.11.1] - 2026-09-19
+## [0.11.1](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.1) - 2026-09-19
 
 ### Fixed
 
@@ -145,7 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`providerCacheRefreshPrompts`), and a zero invoice is reported as real `$0`
   rates.
 
-## [0.11.0] - 2026-09-19
+## [0.11.0](https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-cost/v/0.11.0) - 2026-09-19
 
 ### Added
 
@@ -165,11 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `color|switchColor|style|threshold|lookup|notify`
 - Optional notify before every automatic generation-API request (default off)
 
-<!-- Versions link to their GitHub release page (created by release.yml), while
-     [Unreleased] links to the comparison against the last tag. -->
-[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.11.2...HEAD
-[0.11.2]: https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.2
-[0.11.1]: https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.11.1
-
-<!-- 0.11.0 was released to npm without a git tag, so it links to npm. -->
-[0.11.0]: https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-cost/v/0.11.0
+<!-- [Unreleased] compares against the last tagged version. Every version heading
+     links to its GitHub release page (created by release.yml); 0.11.0 was
+     released to npm without a git tag, so it links to npm. -->
+[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.13.0...HEAD

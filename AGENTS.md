@@ -39,7 +39,8 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 - Every user-facing change gets a bullet under `## [Unreleased]` in `CHANGELOG.md`,
   in the same commit that introduces it (categories: `Added`, `Changed`, `Fixed`, ...).
 - Internal refactors, CI/tooling tweaks, docs-only fixes: no entry.
-- `release.yml` rejects a tag without a matching `## [X.Y.Z]` entry.
+- `release.yml` rejects a tag without a matching `X.Y.Z` heading (the version
+  links its GitHub release).
 - `README.md` has two generated blocks - the badges (from `package.json`) and
   the release notes of the current version (from `CHANGELOG.md`) - written by
   `npm run readme` and verified by `npm run check` (Gitea, the GitHub mirror and
@@ -65,7 +66,8 @@ prefer bullets over prose. When adding or editing a rule, condense, never expand
 
 ## Releasing
 
-1. Move `[Unreleased]` bullets to `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md`
+1. Move `[Unreleased]` bullets to a heading `X.Y.Z - YYYY-MM-DD` (the version
+   links its GitHub release) in `CHANGELOG.md`
 2. Bump `"version"` in `package.json` to `X.Y.Z`, run `npm run readme`, commit
    both (the README block then already shows the notes on Gitea)
 3. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
