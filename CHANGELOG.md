@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.14.0) - 2026-10-13
+
 ### Added
 
 - The session cost sum now uses the real billed amounts instead of Pi's catalogue
@@ -168,4 +170,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- [Unreleased] compares against the last tagged version. Every version heading
      links to its GitHub release page (created by release.yml); 0.11.0 was
      released to npm without a git tag, so it links to npm. -->
-[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-cost/compare/v0.14.0...HEAD
