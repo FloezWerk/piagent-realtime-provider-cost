@@ -103,3 +103,46 @@ test("take: consumes the entry, reset and clear drop it", () => {
   calls.clear();
   assert.equal(calls.size(), 0);
 });
+
+test("record: anthropic-messages events carry provider and id on the nested message", () => {
+  const calls = new StreamCallBuffer();
+  // Shapes of an OpenRouter `anthropic-messages` stream (live capture, shortened).
+  calls.record("anthropic/claude-haiku-5.5", {
+    type: "message_start",
+    message: { id: "msg_vrtx_011Cfzy3FnAP7MZ1NVSf7Fr5", model: "anthropic/claude-haiku-5.5", provider: "Google" },
+  });
+  calls.record("anthropic/claude-haiku-5.5", { type: "content_block_delta", delta: { text: "Hi" } });
+  calls.record("anthropic/claude-haiku-5.5", {
+    type: "message_delta",
+    usage: {
+      input_tokens: 12,
+      output_tokens: 5,
+      cost: 0.0000037,
+      is_byok: false,
+      cost_details: {
+        upstream_inference_cost: 0.0000037,
+        upstream_inference_prompt_cost: 0.0000012,
+        upstream_inference_completions_cost: 0.0000025,
+      },
+    },
+  });
+
+  assert.deepEqual(calls.take("anthropic/claude-haiku-5.5"), {
+    provider: "Google",
+    totalCost: 0.0000037,
+    upstreamCost: 0.0000037,
+    promptCost: 0.0000012,
+    completionsCost: 0.0000025,
+    byok: false,
+    responseId: "msg_vrtx_011Cfzy3FnAP7MZ1NVSf7Fr5",
+  });
+});
+
+test("record: top-level provider and id win over the nested message", () => {
+  const calls = new StreamCallBuffer();
+  calls.record("model-a", chunk({ message: { provider: "Other", id: "msg-x" } }));
+
+  const call = calls.take("model-a");
+  assert.equal(call?.provider, "Fireworks");
+  assert.equal(call?.responseId, "gen-1");
+});

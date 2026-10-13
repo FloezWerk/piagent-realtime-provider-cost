@@ -19,6 +19,12 @@
  * `provider` is present on every chunk, `usage` only on the final one, sent just
  * before `[DONE]` (OpenRouter's usage accounting is always on).
  *
+ * `anthropic-messages` routes (e.g. `anthropic/claude-haiku-5.5`) use Anthropic's
+ * event stream instead. There the provider and id sit on the `message_start`
+ * event (`{ type, message: { id: "msg_...", provider: "Google", ... } }`), and the
+ * usage with the same `cost`/`cost_details` fields on `message_delta`. The nested
+ * `message` fields are read when the top-level ones are absent.
+ *
  * `cost_details` also splits the upstream invoice into its prompt and completion
  * part (checked against a live stream); both fields cover *all* prompt tokens, so
  * a cache read is already priced into `promptCost`. They are captured as the
@@ -71,14 +77,21 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function nonEmptyString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function parseChunk(data: unknown): ChunkInfo | null {
   if (!isRecord(data)) return null;
   const info: ChunkInfo = {};
 
-  const provider = typeof data.provider === "string" ? data.provider.trim() : "";
+  // Anthropic-style events nest the message (provider, id) one level down.
+  const message = isRecord(data.message) ? data.message : null;
+
+  const provider = nonEmptyString(data.provider) || nonEmptyString(message?.provider);
   if (provider) info.provider = provider;
 
-  const id = typeof data.id === "string" ? data.id.trim() : "";
+  const id = nonEmptyString(data.id) || nonEmptyString(message?.id);
   if (id) info.responseId = id;
 
   const usage = isRecord(data.usage) ? data.usage : null;

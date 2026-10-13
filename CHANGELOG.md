@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude models routed through OpenRouter (Anthropic message API) now show their serving provider and real prices, instead of no provider tag.
+
 ## [0.14.0](https://github.com/FloezWerk/piagent-realtime-provider-cost/releases/tag/v0.14.0) - 2026-10-13
 
 ### Added
